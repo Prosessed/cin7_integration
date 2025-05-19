@@ -4,6 +4,7 @@
 import frappe
 import requests
 import json
+from frappe import _
 from frappe.model.document import Document
 
 
@@ -22,7 +23,7 @@ class CIN7Settings(Document):
 
         try:
             response = requests.get(*args, **kwargs)
-        except Exception as e:
+        except Exception:
             frappe.log_error(frappe.get_traceback(), "CIN7 API Request Failed")
             frappe.throw("Unable to reach CIN7. Please check your network or credentials.")
 
@@ -50,7 +51,7 @@ class CIN7Settings(Document):
 
         try:
             response = requests.post(*args, **kwargs)
-        except Exception as e:
+        except Exception:
             frappe.log_error(frappe.get_traceback(), "CIN7 API Request Failed")
             frappe.throw("Unable to reach CIN7. Please check your network or credentials.")
 
@@ -67,3 +68,71 @@ class CIN7Settings(Document):
         except ValueError:
             frappe.log_error(response.text, "Invalid JSON from CIN7")
             frappe.throw("CIN7 returned an invalid or non-JSON response.")
+
+
+# ------------------------
+# Sync Methods
+# ------------------------
+
+@frappe.whitelist()
+def sync_items():
+    cin7 = frappe.get_single("CIN7 Settings")
+    if not cin7.enable:
+        frappe.throw("CIN7 Integration is not enabled.")
+
+    items = get_cin7_items(cin7)
+    frappe.msgprint(f"Fetched {len(items)} items from CIN7.")
+    return items
+
+
+@frappe.whitelist()
+def sync_customers():
+    cin7 = frappe.get_single("CIN7 Settings")
+    if not cin7.enable:
+        frappe.throw("CIN7 Integration is not enabled.")
+
+    customers = get_cin7_customers(cin7)
+    frappe.msgprint(f"Fetched {len(customers)} customers from CIN7.")
+    return customers
+
+
+@frappe.whitelist()
+def sync_item_groups():
+    cin7 = frappe.get_single("CIN7 Settings")
+    if not cin7.enable:
+        frappe.throw("CIN7 Integration is not enabled.")
+
+    groups = get_cin7_item_groups(cin7)
+    frappe.msgprint(f"Fetched {len(groups)} item groups from CIN7.")
+    return groups
+
+
+# ------------------------
+# API CALLS (Internal)
+# ------------------------
+
+def get_cin7_items(cin7, page=1, limit=50):
+    url = f"https://inventory.dearsystems.com/ExternalApi/Products?Page={page}&Limit={limit}"
+    res = cin7._get(url)
+    if isinstance(res, dict) and "Products" in res:
+        frappe.logger().info(f"Fetched {len(res['Products'])} CIN7 items from page {page}")
+        return res["Products"]
+    frappe.throw("Unexpected CIN7 item response format.")
+
+
+def get_cin7_customers(cin7, page=1, limit=50):
+    url = f"https://inventory.dearsystems.com/ExternalApi/Customers?Page={page}&Limit={limit}"
+    res = cin7._get(url)
+    if isinstance(res, dict) and "Customers" in res:
+        frappe.logger().info(f"Fetched {len(res['Customers'])} CIN7 customers from page {page}")
+        return res["Customers"]
+    frappe.throw("Unexpected CIN7 customer response format.")
+
+
+def get_cin7_item_groups(cin7):
+    url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/category?"
+    res = cin7._get(url)
+    if isinstance(res, dict) and "ItemGroups" in res:
+        frappe.logger().info(f"Fetched {len(res['ItemGroups'])} CIN7 item groups")
+        return res["ItemGroups"]
+    frappe.throw("Unexpected CIN7 item group response format.")

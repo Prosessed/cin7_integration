@@ -1,0 +1,117 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-05-19 14:31:53.333431",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "request_log_section",
+  "method",
+  "voucher_type",
+  "voucher_name",
+  "column_break_apmw",
+  "url",
+  "request",
+  "response_log_section",
+  "status",
+  "column_break_whxs",
+  "response"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_log_section",
+   "fieldtype": "Section Break",
+   "label": "Request Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "method",
+   "fieldtype": "Data",
+   "label": "Method",
+   "read_only": 1
+  },
+  {
+   "fieldname": "voucher_type",
+   "fieldtype": "Data",
+   "label": "Voucher Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "voucher_name",
+   "fieldtype": "Data",
+   "label": "Voucher Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_apmw",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "url",
+   "fieldtype": "Data",
+   "label": "URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "request",
+   "fieldtype": "Long Text",
+   "label": "Request",
+   "read_only": 1
+  },
+  {
+   "fieldname": "response_log_section",
+   "fieldtype": "Section Break",
+   "label": "Response Log"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Success\nFailure",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_whxs",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "response",
+   "fieldtype": "Long Text",
+   "label": "Response",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-05-19 14:40:00.848962",
+ "modified_by": "Administrator",
+ "module": "CIN7 Integration",
+ "name": "CIN7 Integration Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
