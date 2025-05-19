@@ -95,7 +95,6 @@ def sync_customers():
     frappe.msgprint(f"Fetched {len(customers)} customers from CIN7.")
     return customers
 
-
 @frappe.whitelist()
 def sync_item_groups():
     cin7 = frappe.get_single("CIN7 Settings")
@@ -103,8 +102,7 @@ def sync_item_groups():
         frappe.throw("CIN7 Integration is not enabled.")
 
     groups = get_cin7_item_groups(cin7)
-    frappe.msgprint(f"Fetched {len(groups)} item groups from CIN7.")
-    return groups
+    return f"Fetched {len(groups)} item groups from CIN7."
 
 
 # ------------------------
@@ -112,7 +110,7 @@ def sync_item_groups():
 # ------------------------
 
 def get_cin7_items(cin7, page=1, limit=50):
-    url = f"https://inventory.dearsystems.com/ExternalApi/Products?Page={page}&Limit={limit}"
+    url = f"https://inventory.dearsystems.com/ExternalApi/Products?Page={page}"
     res = cin7._get(url)
     if isinstance(res, dict) and "Products" in res:
         frappe.logger().info(f"Fetched {len(res['Products'])} CIN7 items from page {page}")
@@ -121,7 +119,7 @@ def get_cin7_items(cin7, page=1, limit=50):
 
 
 def get_cin7_customers(cin7, page=1, limit=50):
-    url = f"https://inventory.dearsystems.com/ExternalApi/Customers?Page={page}&Limit={limit}"
+    url = f"https://inventory.dearsystems.com/ExternalApi/Customers?Page={page}"
     res = cin7._get(url)
     if isinstance(res, dict) and "Customers" in res:
         frappe.logger().info(f"Fetched {len(res['Customers'])} CIN7 customers from page {page}")
@@ -132,7 +130,18 @@ def get_cin7_customers(cin7, page=1, limit=50):
 def get_cin7_item_groups(cin7):
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/category?"
     res = cin7._get(url)
-    if isinstance(res, dict) and "ItemGroups" in res:
-        frappe.logger().info(f"Fetched {len(res['ItemGroups'])} CIN7 item groups")
-        return res["ItemGroups"]
+    if isinstance(res, dict) and "CategoryList" in res:
+        frappe.logger().info(f"Fetched {len(res['CategoryList'])} CIN7 item groups")
+        # log_cin7(
+        #     title="CIN7 Item Groups",
+        #     method="GET",
+        #     url=url,
+        #     status="Success",
+        #     response=json.dumps(res, indent=2)
+        # )
+        return res["CategoryList"]
+
+
+
+
     frappe.throw("Unexpected CIN7 item group response format.")

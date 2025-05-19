@@ -22,6 +22,9 @@ frappe.ui.form.on("CIN7 Settings", {
             callback: function(r) {
                 frappe.msgprint(r.message);
                 frm.reload_doc();
+            },
+            error: function(r) {
+                frappe.msgprint("Error syncing customers: " + r.message);
             }
         });
     },
@@ -34,6 +37,9 @@ frappe.ui.form.on("CIN7 Settings", {
             callback: function(r) {
                 frappe.msgprint(r.message);
                 frm.reload_doc();
+            },
+            error: function(r) {
+                frappe.msgprint("Error syncing customers: " + r.message);
             }
         });
     },
@@ -46,7 +52,9 @@ frappe.ui.form.on("CIN7 Settings", {
             callback: function(r) {
                 frappe.msgprint(r.message);
                 frm.reload_doc();
-            }
+
+            },
+
         });
     }
 });
