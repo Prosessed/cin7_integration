@@ -7,6 +7,7 @@ import json
 from frappe import _
 from frappe.model.document import Document
 
+from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
 class CIN7Settings(Document):
 
@@ -82,6 +83,14 @@ def sync_items():
 
     items = get_cin7_items(cin7)
     frappe.msgprint(f"Fetched {len(items)} items from CIN7.")
+    log_cin7(
+        title="CIN7 Item Sync",
+        method="GET",
+        voucher_type="Item",
+        url="https://inventory.dearsystems.com/ExternalApi/Products",
+        status="Success",
+        response=json.dumps(items, indent=2)
+    )
     return items
 
 
@@ -93,6 +102,13 @@ def sync_customers():
 
     customers = get_cin7_customers(cin7)
     frappe.msgprint(f"Fetched {len(customers)} customers from CIN7.")
+    log_cin7(
+        title="CIN7 Customer Sync",
+        method="GET",
+        url="https://inventory.dearsystems.com/ExternalApi/Customers",
+        status="Success",
+        response=json.dumps(customers, indent=2)
+    )
     return customers
 
 @frappe.whitelist()
@@ -102,6 +118,14 @@ def sync_item_groups():
         frappe.throw("CIN7 Integration is not enabled.")
 
     groups = get_cin7_item_groups(cin7)
+    frappe.msgprint(f"Fetched {len(groups)} categories from CIN7.")
+    log_cin7(
+        title="CIN7 Item Group Sync",
+        method="GET",
+        url="https://inventory.dearsystems.com/ExternalApi/v2/ref/category",
+        status="Success",
+        response=json.dumps(groups, indent=2)
+    )
     return f"Fetched {len(groups)} item groups from CIN7."
 
 
@@ -132,13 +156,7 @@ def get_cin7_item_groups(cin7):
     res = cin7._get(url)
     if isinstance(res, dict) and "CategoryList" in res:
         frappe.logger().info(f"Fetched {len(res['CategoryList'])} CIN7 item groups")
-        # log_cin7(
-        #     title="CIN7 Item Groups",
-        #     method="GET",
-        #     url=url,
-        #     status="Success",
-        #     response=json.dumps(res, indent=2)
-        # )
+
         return res["CategoryList"]
 
 

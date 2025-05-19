@@ -8,8 +8,8 @@ class CIN7IntegrationLog(Document):
 
 
 def log_cin7(title, method=None, url=None, voucher_type=None, voucher_name=None, status=None, request=None, response=None):
-    """Creates a new Xero Integration Log entry"""
-    doc = frappe.new_doc('Xero Integration Log')
+    """Creates a new CIN7 Integration Log entry"""
+    doc = frappe.new_doc('CIN7 Integration Log')
     doc.update({
         "title": title,
         "method": method,
@@ -20,6 +20,6 @@ def log_cin7(title, method=None, url=None, voucher_type=None, voucher_name=None,
         "request": request,
         "response": response
     })
-    doc.insert(ignore_permissions=True)
-    frappe.db.commit()
+
+    doc.save()
     return doc.name
