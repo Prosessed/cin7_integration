@@ -73,8 +73,6 @@ class CIN7Settings(Document):
 
 
 # ------------ Customer Sync ------------
-
-
 @frappe.whitelist()
 def sync_customers():
     cin7 = frappe.get_single("CIN7 Settings")
@@ -205,9 +203,6 @@ def sync_customers():
 
 
 # ------------ Item Sync ------------
-
-
-
 @frappe.whitelist()
 def sync_items():
     """Sync CIN7 items to ERPNext"""
