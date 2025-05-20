@@ -71,95 +71,292 @@ class CIN7Settings(Document):
             frappe.throw("CIN7 returned an invalid or non-JSON response.")
 
 
-# ------------------------
-# Sync Methods
-# ------------------------
 
-@frappe.whitelist()
-def sync_items():
-    cin7 = frappe.get_single("CIN7 Settings")
-    if not cin7.enable:
-        frappe.throw("CIN7 Integration is not enabled.")
-
-    items = get_cin7_items(cin7)
-    frappe.msgprint(f"Fetched {len(items)} items from CIN7.")
-    log_cin7(
-        title="CIN7 Item Sync",
-        method="GET",
-        voucher_type="Item",
-        url="https://inventory.dearsystems.com/ExternalApi/Products",
-        status="Success",
-        response=json.dumps(items, indent=2)
-    )
-    return items
+# ------------ Customer Sync ------------
 
 
 @frappe.whitelist()
 def sync_customers():
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
-        frappe.throw("CIN7 Integration is not enabled.")
+        frappe.throw(_("CIN7 Integration is not enabled."))
 
-    customers = get_cin7_customers(cin7)
-    frappe.msgprint(f"Fetched {len(customers)} customers from CIN7.")
+    url = "https://inventory.dearsystems.com/ExternalApi/Customers"
+    errors = []
+    customers = []
+
+    # Fetch CIN7 customers
+    try:
+        customers = get_cin7_customers(cin7)
+        frappe.logger().info(f"Fetched {len(customers)} customers from CIN7")
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "CIN7 Customer Sync - Fetch Error")
+        log_cin7(title="CIN7 Customer Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
+        frappe.throw(_("Unable to fetch customers from CIN7."))
+
+    for c in customers:
+        try:
+            customer_id = c.get("ID")
+            customer_name = c.get("Name") or "Unnamed Customer"
+
+            if not customer_id:
+                continue
+
+            # Create or update Customer
+            customer_docname = frappe.db.exists("Customer", {"custom_cin7_customer_id": customer_id})
+            customer = frappe.get_doc("Customer", customer_docname) if customer_docname else frappe.new_doc("Customer")
+
+            customer.update({
+                "customer_name": customer_name,
+                "customer_type": "Company",
+                "customer_group": "Commercial",
+                "territory": "All Territories",
+                "custom_cin7_customer_id": customer_id
+            })
+            customer.save(ignore_permissions=True)
+
+            addresses = c.get("Addresses", [])
+            valid_types = {"Billing", "Shipping"}
+
+            for idx, addr in enumerate(addresses):
+                addr_type = (addr.get("Type") or "").strip().title()
+
+                if addr_type not in valid_types:
+                    continue
+
+                line1 = addr.get("Line1") or "Unknown Address Line 1"
+                line2 = addr.get("Line2") or ""
+                city = addr.get("City") or "Unknown City"
+                state = addr.get("State") or ""
+                pincode = addr.get("Postcode") or ""
+                country = addr.get("Country") or "Australia"
+
+                address_title = f"{customer_name}"
+
+                exists = frappe.db.exists("Address", {
+                    "address_title": address_title,
+                    "address_line1": line1,
+                    "city": city,
+                    "country": country
+                })
+                if not exists:
+                    address = frappe.get_doc({
+                        "doctype": "Address",
+                        "address_title": address_title,
+                        "address_type": addr_type,
+                        "address_line1": line1,
+                        "address_line2": line2,
+                        "city": city,
+                        "state": state,
+                        "pincode": pincode,
+                        "country": country,
+                        "links": [{
+                            "link_doctype": "Customer",
+                            "link_name": customer.name
+                        }]
+                    })
+                    address.insert(ignore_permissions=True)
+
+
+            # Create all Contacts
+            contacts = c.get("Contacts", [])
+            for idx, contact in enumerate(contacts):
+                name = contact.get("Name") or f"{customer_name} Contact {idx+1}"
+                phone = contact.get("Phone") or contact.get("MobilePhone") or ""
+                email = contact.get("Email") or ""
+
+                contact_key = {"first_name": name, "email_id": email}
+                if not frappe.db.exists("Contact", contact_key):
+                    contact_doc = frappe.get_doc({
+                        "doctype": "Contact",
+                        "first_name": name,
+                        "email_ids": [{"email_id": email, "is_primary": 1}] if email else [],
+                        "phone_nos": [{"phone": phone, "is_primary_phone": 1}] if phone else [],
+                        "links": [{
+                            "link_doctype": "Customer",
+                            "link_name": customer.name
+                        }]
+                    })
+                    contact_doc.insert(ignore_permissions=True)
+
+        except Exception:
+            msg = f"Failed to sync customer: {c.get('Name')}"
+            errors.append(msg)
+            frappe.log_error(frappe.get_traceback(), msg)
+
+    # Final log
+    status = "Success" if not errors else "Partial Success"
     log_cin7(
         title="CIN7 Customer Sync",
         method="GET",
-        url="https://inventory.dearsystems.com/ExternalApi/Customers",
-        status="Success",
-        response=json.dumps(customers, indent=2)
+        url=url,
+        status=status,
+        response=json.dumps(customers if not errors else {"errors": errors}, indent=2)
     )
-    return customers
+
+    if errors:
+        frappe.msgprint(title="CIN7 Customer Sync - Issues Found", msg="<br>".join(errors), indicator='orange')
+    else:
+        frappe.msgprint(f"Successfully synced {len(customers)} customers from CIN7.")
+
+    return f"{status}: {len(customers)} customers processed"
+
+
+
+
+# ------------ Item Sync ------------
+
+
 
 @frappe.whitelist()
-def sync_item_groups():
+def sync_items():
+    """Sync CIN7 items to ERPNext"""
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
-        frappe.throw("CIN7 Integration is not enabled.")
+        frappe.throw(_("CIN7 Integration is not enabled."))
 
-    groups = get_cin7_item_groups(cin7)
-    frappe.msgprint(f"Fetched {len(groups)} categories from CIN7.")
+    url = "https://inventory.dearsystems.com/ExternalApi/Products?Page=1"
+    errors = []
+    items = []
+
+    # Fetch CIN7 Items
+    try:
+        res = cin7._get(url)
+        if isinstance(res, dict) and "Products" in res:
+            items = res["Products"]
+            frappe.logger().info(f"Fetched {len(items)} CIN7 items")
+        else:
+            raise ValueError("Invalid CIN7 response format.")
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "CIN7 Item Sync - Fetch Error")
+        log_cin7(title="CIN7 Item Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
+        frappe.throw(_("Unable to fetch items from CIN7."))
+
+    # Create Items
+    for item_data in items:
+        item_id = item_data.get("ID")
+        item_name = item_data.get("Name")
+
+        if not item_id or frappe.db.exists("Item", {"cin7_item_id": item_id}):
+            continue
+
+        try:
+
+            brand = item_data.get("Brand")
+            uom = item_data.get("UOM")
+
+            # create brands
+            if brand and not frappe.db.exists("Brand", brand):
+                        frappe.get_doc({
+                            "doctype": "Brand",
+                            "brand": brand
+                        }).insert(ignore_permissions=True)
+
+            # create uoms
+            if uom and not frappe.db.exists("UOM", uom):
+                frappe.get_doc({
+                    "doctype": "UOM",
+                    "uom_name": uom,
+                }).insert(ignore_permissions=True)
+
+            # create item
+            item = frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_id,
+                "custom_cin7_item_id": item_id,
+                "brand": brand,
+                "item_name": item_name,
+                "description": item_data.get("Description"),
+                "custom_publish_on_app" :1,
+                "item_group": item_data.get("Category") or "All Item Groups",
+                "stock_uom": item_data.get("UOM"),
+            })
+            item.insert(ignore_permissions=True)
+
+            # Insert Item Price if available
+            if item_data.get("AverageCost"):
+                frappe.get_doc({
+                    "doctype": "Item Price",
+                    "item_code": item_id,
+                    "price_list": "Standard Selling",
+                    "price_list_rate": item_data.get("AverageCost")
+                }).insert(ignore_permissions=True)
+
+        except Exception:
+            msg = f"Failed to create Item: {item_name}"
+            errors.append(msg)
+            frappe.log_error(frappe.get_traceback(), msg)
+
+    # Final log
+    status = "Success" if not errors else "Partial Success"
+    log_cin7(
+        title="CIN7 Item Sync",
+        method="GET",
+        url=url,
+        status=status,
+        response=json.dumps(items if not errors else {"errors": errors}, indent=2)
+    )
+
+    if errors:
+        frappe.msgprint(title="CIN7 Item Sync - Issues Found", msg="<br>".join(errors), indicator='orange')
+    else:
+        frappe.msgprint(f"Successfully synced {len(items)} items from CIN7.")
+
+    return f"{status}: {len(items)} items processed"
+
+
+
+# ------------ Item Group Sync ------------
+@frappe.whitelist()
+def sync_item_groups():
+    """Sync CIN7 item groups to ERPNext"""
+    cin7 = frappe.get_single("CIN7 Settings")
+    if not cin7.enable:
+        frappe.throw(_("CIN7 Integration is not enabled."))
+
+    url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/category"
+    errors = []
+    groups = []
+
+    # Fetch from CIN7
+    try:
+        response = cin7._get(url)
+        if isinstance(response, dict) and "CategoryList" in response:
+            groups = response["CategoryList"]
+            frappe.logger().info(f"Fetched {len(groups)} CIN7 item groups")
+        else:
+            raise ValueError("Invalid CIN7 response format.")
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "CIN7 Item Group Sync - Fetch Error")
+        log_cin7(title="CIN7 Item Group Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
+        frappe.throw(_("Unable to fetch item groups from CIN7."))
+
+    # Create in ERPNext
+    for group in groups:
+        name = group.get("Name")
+        if not name or frappe.db.exists("Item Group", {"item_group_name": name}):
+            continue
+        try:
+            frappe.get_doc({"doctype": "Item Group", "item_group_name": name, "is_group": 0}).insert(ignore_permissions=True)
+        except Exception:
+            msg = f"Failed to create Item Group: {name}"
+            errors.append(msg)
+            frappe.log_error(frappe.get_traceback(), msg)
+
+    status = "Success" if not errors else "Partial Success"
     log_cin7(
         title="CIN7 Item Group Sync",
         method="GET",
-        url="https://inventory.dearsystems.com/ExternalApi/v2/ref/category",
-        status="Success",
-        response=json.dumps(groups, indent=2)
+        url=url,
+        status=status,
+        response=json.dumps(groups if not errors else {"errors": errors}, indent=2)
     )
-    return f"Fetched {len(groups)} item groups from CIN7."
+
+    if errors:
+        frappe.msgprint(title="CIN7 Item Group Sync - Issues Found", msg="<br>".join(errors), indicator='orange')
+    else:
+        frappe.msgprint(f"Successfully fetched and created {len(groups)} item groups from CIN7.")
+
+    return f"{status}: {len(groups)} groups processed"
 
 
-# ------------------------
-# API CALLS (Internal)
-# ------------------------
-
-def get_cin7_items(cin7, page=1, limit=50):
-    url = f"https://inventory.dearsystems.com/ExternalApi/Products?Page={page}"
-    res = cin7._get(url)
-    if isinstance(res, dict) and "Products" in res:
-        frappe.logger().info(f"Fetched {len(res['Products'])} CIN7 items from page {page}")
-        return res["Products"]
-    frappe.throw("Unexpected CIN7 item response format.")
-
-
-def get_cin7_customers(cin7, page=1, limit=50):
-    url = f"https://inventory.dearsystems.com/ExternalApi/Customers?Page={page}"
-    res = cin7._get(url)
-    if isinstance(res, dict) and "Customers" in res:
-        frappe.logger().info(f"Fetched {len(res['Customers'])} CIN7 customers from page {page}")
-        return res["Customers"]
-    frappe.throw("Unexpected CIN7 customer response format.")
-
-
-def get_cin7_item_groups(cin7):
-    url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/category?"
-    res = cin7._get(url)
-    if isinstance(res, dict) and "CategoryList" in res:
-        frappe.logger().info(f"Fetched {len(res['CategoryList'])} CIN7 item groups")
-
-        return res["CategoryList"]
-
-
-
-
-    frappe.throw("Unexpected CIN7 item group response format.")
