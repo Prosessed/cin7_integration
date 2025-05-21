@@ -244,7 +244,7 @@ app_license = "mit"
 
 doc_events = {
 		"Sales Order":{
-		"on_submit":"cin7_integraion.api.create_cin7_sales_order",
+		"on_submit":"cin7_integration.api.create_sales_order_on_cin7",
 	},
 
 }

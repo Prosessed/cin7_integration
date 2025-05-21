@@ -272,7 +272,7 @@ def sync_items():
     # Create or Update Items
     for item_data in items:
         item_id = item_data.get("ID")
-        item_name = item_data.get("Name")
+        item_name = item_data.get("SKU")
 
         if not item_id:
             continue
