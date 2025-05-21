@@ -242,3 +242,13 @@ app_license = "mit"
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+doc_events = {
+		"Sales Order":{
+		"on_submit":"cin7_integraion.api.create_cin7_sales_order",
+	},
+
+}
+
+
+
+
