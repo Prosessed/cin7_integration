@@ -369,56 +369,6 @@ def sync_items():
 
 
 # ------------ Item Group Sync -----------
-#     """Sync CIN7 item groups to ERPNext"""
-#     cin7 = frappe.get_single("CIN7 Settings")
-#     if not cin7.enable:
-#         frappe.throw(_("CIN7 Integration is not enabled."))
-
-#     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/category"
-#     errors = []
-#     groups = []
-
-#     # Fetch from CIN7
-#     try:
-#         response = cin7._get(url)
-#         if isinstance(response, dict) and "CategoryList" in response:
-#             groups = response["CategoryList"]
-#             frappe.logger().info(f"Fetched {len(groups)} CIN7 item groups")
-#         else:
-#             raise ValueError("Invalid CIN7 response format.")
-#     except Exception as e:
-#         frappe.log_error(frappe.get_traceback(), "CIN7 Item Group Sync - Fetch Error")
-#         log_cin7(title="CIN7 Item Group Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
-#         frappe.throw(_("Unable to fetch item groups from CIN7."))
-
-#     # Create in ERPNext
-#     for group in groups:
-#         name = group.get("Name")
-#         if not name or frappe.db.exists("Item Group", {"item_group_name": name}):
-#             continue
-#         try:
-#             frappe.get_doc({"doctype": "Item Group", "item_group_name": name, "is_group": 0}).insert(ignore_permissions=True)
-#         except Exception:
-#             msg = f"Failed to create Item Group: {name}"
-#             errors.append(msg)
-#             frappe.log_error(frappe.get_traceback(), msg)
-
-#     status = "Success" if not errors else "Partial Success"
-#     log_cin7(
-#         title="CIN7 Item Group Sync",
-#         method="GET",
-#         url=url,
-#         status=status,
-#         response=json.dumps(groups if not errors else {"errors": errors}, indent=2)
-#     )
-
-#     if errors:
-#         frappe.msgprint(title="CIN7 Item Group Sync - Issues Found", msg="<br>".join(errors), indicator='orange')
-#     else:
-#         frappe.msgprint(f"Successfully fetched and created {len(groups)} item groups from CIN7.")
-
-#     return f"{status}: {len(groups)} groups processed"
-
 @frappe.whitelist()
 def sync_item_groups():
     """Sync CIN7 item groups to ERPNext"""
