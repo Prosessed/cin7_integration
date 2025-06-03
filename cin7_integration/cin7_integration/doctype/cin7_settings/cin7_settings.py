@@ -602,3 +602,112 @@ def sync_item_groups():
 
     return f"{status}: {len(groups)} groups processed"
 
+
+from frappe.utils import nowdate, nowtime
+
+@frappe.whitelist()
+def sync_stock():
+    """Sync stock from CIN7 and create Stock Reconciliation in ERPNext."""
+
+    cin7 = frappe.get_single("CIN7 Settings")
+    if not cin7.enable:
+        frappe.throw(_("CIN7 Integration is not enabled."))
+
+    url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+    skipped_items = []
+    items_to_reconcile = {}
+
+    try:
+        # 1. Fetch stock from CIN7
+        response = cin7._get(url)
+
+        if not isinstance(response, dict) or "ProductAvailabilityList" not in response:
+            raise ValueError("Invalid CIN7 response format.")
+
+        stocks = response.get("ProductAvailabilityList", [])
+        if not stocks:
+            frappe.throw(_("No stock data received from CIN7."))
+
+        frappe.logger().info(f"[CIN7] Received {len(stocks)} stock entries.")
+
+        # 2. Build item list
+        for stock in stocks:
+            sku = stock.get("SKU")
+            cin7_qty = float(stock.get("OnHand") or 0)
+            warehouse = "Main Warehouse - LD"
+
+            item_code = frappe.db.get_value("Item", {"item_code": sku})
+            if not item_code:
+                skipped_items.append(f"SKU not found in ERP: {sku}")
+                continue
+
+            # Get current stock from Bin (if exists)
+            current_qty = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty") or 0.0
+            current_qty = float(current_qty)
+
+            if cin7_qty == current_qty:
+                skipped_items.append(f"Unchanged qty for {item_code} ({warehouse}): {cin7_qty}")
+                continue
+
+            key = (item_code, warehouse)
+            items_to_reconcile[key] = {
+                "item_code": item_code,
+                "warehouse": warehouse,
+                "qty": cin7_qty,
+                "valuation_rate": 10.0  # Replace with actual rate if needed
+            }
+
+        if not items_to_reconcile:
+            frappe.msgprint(_("No changes detected. Stock Reconciliation not required."), indicator="blue")
+            return "No changes detected. Nothing to reconcile."
+
+
+
+
+        # 3. Create Stock Reconciliation
+        sr_doc = frappe.new_doc("Stock Reconciliation")
+        sr_doc.company = frappe.defaults.get_user_default("Company")
+        sr_doc.purpose = "Stock Reconciliation"
+        sr_doc.posting_date = nowdate()
+        sr_doc.posting_time = nowtime()
+
+        for item in items_to_reconcile.values():
+            sr_doc.append("items", item)
+
+        sr_doc.insert(ignore_permissions=True)
+        sr_doc.submit()
+
+        # 4. Log success
+        log_cin7(
+            title=f"Stock Reconciliation {sr_doc.name} Created",
+            method="POST",
+            url=url,
+            status="Success",
+            response=json.dumps({
+                "reconciled_items": len(items_to_reconcile),
+                "skipped_items": skipped_items
+            }, indent=2)
+        )
+
+        # 5. Show feedback
+        if skipped_items:
+            frappe.msgprint(
+                title="CIN7 Sync Complete (Some Skipped)",
+                msg="<br>".join(skipped_items),
+                indicator="orange"
+            )
+        else:
+            frappe.msgprint(f"Stock Reconciliation {sr_doc.name} created successfully.")
+
+        return f"Success: {len(items_to_reconcile)} items reconciled"
+
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "CIN7 Stock Sync - Fatal Error")
+        log_cin7(
+            title="CIN7 Stock Sync - Fatal Error",
+            method="POST",
+            url=url,
+            status="Failure",
+            response=frappe.get_traceback()
+        )
+        frappe.throw(_("Stock reconciliation failed due to an unexpected error."))

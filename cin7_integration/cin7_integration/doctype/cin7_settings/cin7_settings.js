@@ -12,6 +12,8 @@ frappe.ui.form.on("CIN7 Settings", {
         frm.get_field("sync_items").$input.addClass('btn-primary');
         frm.get_field("sync_customer").$input.addClass('btn-primary');
         frm.get_field("sync_item_groups").$input.addClass('btn-primary');
+        frm.get_field("sync_stock").$input.addClass('btn-primary');
+
     },
 
     sync_items(frm) {
@@ -49,6 +51,20 @@ frappe.ui.form.on("CIN7 Settings", {
             method: "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_item_groups",
             freeze: true,
             freeze_message: "Syncing ItemGroups from CIN7...",
+            callback: function(r) {
+                frappe.msgprint(r.message);
+                frm.reload_doc();
+
+            },
+
+        });
+    },
+
+    sync_stock(frm) {
+        frappe.call({
+            method: "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_stock",
+            freeze: true,
+            freeze_message: "Syncing Stocks from CIN7...",
             callback: function(r) {
                 frappe.msgprint(r.message);
                 frm.reload_doc();

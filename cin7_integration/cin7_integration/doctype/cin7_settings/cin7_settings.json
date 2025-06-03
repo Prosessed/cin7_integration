@@ -15,7 +15,9 @@
   "cin7_customer_sync_section",
   "sync_customer",
   "cin7_item_group_sync_section",
-  "sync_item_groups"
+  "sync_item_groups",
+  "cin7_stock_sync_section",
+  "sync_stock"
  ],
  "fields": [
   {
@@ -76,13 +78,23 @@
    "fieldname": "cin7_item_group_sync_section",
    "fieldtype": "Section Break",
    "label": "CIN7 Item Group Sync"
+  },
+  {
+   "fieldname": "cin7_stock_sync_section",
+   "fieldtype": "Section Break",
+   "label": "CIN7 Stock Sync"
+  },
+  {
+   "fieldname": "sync_stock",
+   "fieldtype": "Button",
+   "label": "Sync Stock"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-05-19 15:19:51.437707",
+ "modified": "2025-06-03 18:53:59.312228",
  "modified_by": "Administrator",
  "module": "CIN7 Integration",
  "name": "CIN7 Settings",
