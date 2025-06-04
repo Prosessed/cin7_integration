@@ -227,7 +227,7 @@ def sync_customers():
             frappe.log_error(frappe.get_traceback(), msg)
 
     # Final log
-    status = "Success" if not errors else "Partial Success"
+    status = "Success" if not errors else "Failure"
     log_cin7(
         title="CIN7 Customer Sync",
         method="GET",
@@ -244,154 +244,6 @@ def sync_customers():
     return f"{status}: {len(customers)} customers processed"
 
 
-
-# # --- Sync CIN7 Items to ERPNext
-# @frappe.whitelist()
-# def sync_items():
-#     """Sync CIN7 items to ERPNext"""
-#     cin7 = frappe.get_single("CIN7 Settings")
-#     if not cin7.enable:
-#         frappe.throw(_("CIN7 Integration is not enabled."))
-
-#     url = "https://inventory.dearsystems.com/ExternalApi/Products?Page=1"
-#     errors = []
-#     items = []
-
-#     # Fetch CIN7 Items
-#     try:
-#         res = cin7._get(url)
-#         if isinstance(res, dict) and "Products" in res:
-#             items = res["Products"]
-#             frappe.logger().info(f"Fetched {len(items)} CIN7 items")
-#         else:
-#             raise ValueError("Invalid CIN7 response format.")
-#     except Exception:
-#         frappe.log_error(frappe.get_traceback(), "CIN7 Item Sync - Fetch Error")
-#         log_cin7(title="CIN7 Item Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
-#         frappe.throw(_("Unable to fetch items from CIN7."))
-
-#     # Create or Update Items
-#     for item_data in items:
-#         cin7_item_id = item_data.get("ID")
-#         item_code = item_data.get("SKU")
-#         item_name  = item_code
-#         if not cin7_item_id:
-#             continue
-
-#         try:
-#             brand = item_data.get("Brand")
-#             uom = item_data.get("UOM")
-
-#             # create brand if not exists
-#             if brand and not frappe.db.exists("Brand", brand):
-#                 frappe.get_doc({
-#                     "doctype": "Brand",
-#                     "brand": brand
-#                 }).insert(ignore_permissions=True)
-
-#             # create uom if not exists
-#             if uom and not frappe.db.exists("UOM", uom):
-#                 frappe.get_doc({
-#                     "doctype": "UOM",
-#                     "uom_name": uom,
-#                 }).insert(ignore_permissions=True)
-
-#             existing_item = frappe.get_value("Item", {"custom_cin7_item_id": cin7_item_id}, "name")
-
-
-#             if not existing_item:
-#                 # insert new item
-#                 item = frappe.get_doc({
-#                     "doctype": "Item",
-#                     "item_code": item_code,
-#                     "custom_cin7_item_id": cin7_item_id,
-#                     "brand": brand,
-#                     "item_name": item_name,
-#                     "description": item_data.get("Description"),
-#                     "custom_publish_on_app": 1,
-#                     "item_group": item_data.get("Category") or "All Item Groups",
-#                     "stock_uom": item_data.get("UOM"),
-#                 })
-#                 item.insert(ignore_permissions=True)
-#             else:
-#                 # update existing item
-#                 item = frappe.get_doc("Item", cin7_item_id)
-#                 updated = False
-
-#                 if item.item_name != item_name:
-#                     item.item_name = item_name
-#                     updated = True
-#                 if item.description != item_data.get("Description"):
-#                     item.description = item_data.get("Description")
-#                     updated = True
-#                 if item.brand != brand:
-#                     item.brand = brand
-#                     updated = True
-#                 if item.stock_uom != item_data.get("UOM"):
-#                     item.stock_uom = item_data.get("UOM")
-#                     updated = True
-#                 if item.item_group != (item_data.get("Category") or "All Item Groups"):
-#                     item.item_group = item_data.get("Category") or "All Item Groups"
-#                     updated = True
-
-#                 if updated:
-#                     item.save(ignore_permissions=True)
-
-
-#             price_tiers =item_data.get("PriceTiers", [])
-
-#             for tier_name, tier_price in price_tiers.items():
-#                 if not tier_price or tier_price == 0:
-#                     continue
-
-#                 if not frappe.db.exists("Price List", tier_name):
-#                     frappe.get_doc({
-#                         "doctype": "Price List",
-#                         "price_list_name": tier_name,
-#                         "selling": 1,
-#                         "enabled": 1
-#                     }).insert(ignore_permissions=True)
-
-#                 item_price_filters = {
-#                         "item_code": item_code,
-#                          "price_list": tier_name
-#                 }
-
-#             if not frappe.db.exists("Item Price", item_price_filters):
-#                 frappe.get_doc({
-#                     "doctype": "Item Price",
-#                     "item_code": item_code,
-#                     "price_list": tier_name,
-#                     "price_list_rate": tier_price
-#                 }).insert(ignore_permissions=True)
-#             else:
-#                 item_price_doc = frappe.get_doc("Item Price", item_price_filters)
-#                 if item_price_doc.price_list_rate != tier_price:
-#                     item_price_doc.price_list_rate = tier_price
-#                     item_price_doc.save(ignore_permissions=True)
-
-
-#         except Exception:
-#             msg = f"Failed to create/update Item: {item_name}"
-#             errors.append(msg)
-#             frappe.log_error(frappe.get_traceback(), msg)
-
-#     # Final log
-#     status = "Success" if not errors else "Partial Success"
-#     log_cin7(
-#         title="CIN7 Item Sync",
-#         method="GET",
-#         url=url,
-#         status=status,
-#         response=json.dumps(items if not errors else {"errors": errors}, indent=2)
-#     )
-
-#     if errors:
-#         frappe.msgprint(title="CIN7 Item Sync - Issues Found", msg="<br>".join(errors), indicator='orange')
-#     else:
-#         frappe.msgprint(f"Successfully processed {len(items)} CIN7 items.")
-
-#     return f"{status}: {len(items)} items processed"
 
 
 @frappe.whitelist()
@@ -422,7 +274,7 @@ def sync_items():
                 errors.append(msg)
                 frappe.log_error(frappe.get_traceback(), msg)
 
-        status = "Success" if not errors else "Partial Success"
+        status = "Success" if not errors else "Failure"
         log_cin7(
             title="CIN7 Item Sync",
             method="GET",
@@ -586,7 +438,7 @@ def sync_item_groups():
             errors.append(msg)
             frappe.log_error(frappe.get_traceback(), msg)
 
-    status = "Success" if not errors else "Partial Success"
+    status = "Success" if not errors else "Failure"
     log_cin7(
         title="CIN7 Item Group Sync",
         method="GET",
@@ -654,7 +506,7 @@ def sync_stock():
                 "item_code": item_code,
                 "warehouse": warehouse,
                 "qty": cin7_qty,
-                "valuation_rate": 10.0  # Replace with actual rate if needed
+                "valuation_rate": 10.0
             }
 
         if not items_to_reconcile:
