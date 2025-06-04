@@ -486,7 +486,7 @@ def sync_stock():
         for stock in stocks:
             sku = stock.get("SKU")
             cin7_qty = float(stock.get("OnHand") or 0)
-            warehouse = "Main Warehouse - LD"
+            warehouse = "Melbourne Warehouse - IF-M"
 
             item_code = frappe.db.get_value("Item", {"item_code": sku})
             if not item_code:
