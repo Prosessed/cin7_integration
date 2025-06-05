@@ -75,57 +75,77 @@ class CIN7Settings(Document):
 # --- Sync CIN7 Customers to ERPNext
 @frappe.whitelist()
 def sync_customers():
+    import re
+    import json
+
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
         frappe.throw(_("CIN7 Integration is not enabled."))
 
-    url = "https://inventory.dearsystems.com/ExternalApi/Customers"
+    base_url = "https://inventory.dearsystems.com/ExternalApi/Customers"
     errors = []
     customers = []
+    page = 1
+    total = None
 
-    # Fetch CIN7 customers
     try:
-        response = cin7._get(url)
-        customers = response.get("Customers", [])
-        if not isinstance(customers, list):
-            raise ValueError("Invalid CIN7 response: 'Customers' is not a list.")
-        frappe.logger().info(f"Fetched {len(customers)} customers from CIN7")
+        while True:
+            url = f"{base_url}?Page={page}"
+            response = cin7._get(url)
+
+            if total is None:
+                total = response.get("Total", 0)
+
+            page_customers = response.get("Customers", [])
+            if not isinstance(page_customers, list):
+                raise ValueError(f"Invalid CIN7 response format on page {page}")
+
+            if not page_customers:
+                break
+
+            customers.extend(page_customers)
+            frappe.logger().info(f"Fetched {len(page_customers)} customers from CIN7 page {page}")
+
+            if len(customers) >= total:
+                break
+
+            page += 1
+
     except Exception:
         frappe.log_error(frappe.get_traceback(), "CIN7 Customer Sync - Fetch Error")
-        log_cin7(title="CIN7 Customer Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
+        log_cin7(title="CIN7 Customer Sync - Fetch Error", method="GET", url=base_url, status="Failed", response=frappe.get_traceback())
         frappe.throw(_("Unable to fetch customers from CIN7."))
 
     for c in customers:
         try:
             customer_id = c.get("ID")
             customer_name = c.get("Name") or "Unnamed Customer"
-
             if not customer_id:
                 continue
 
-            # Create or update Customer
-            customer_docname = frappe.db.exists("Customer", {"custom_cin7_customer_id": customer_id})
-            customer = frappe.get_doc("Customer", customer_docname) if customer_docname else frappe.new_doc("Customer")
+            existing_customer_name = frappe.db.exists("Customer", {"custom_cin7_customer_id": customer_id})
+            customer = frappe.get_doc("Customer", existing_customer_name) if existing_customer_name else frappe.new_doc("Customer")
 
+            # Preserve customer_name if already exists
             updated_fields = {
-                "customer_name": customer_name,
                 "customer_type": "Company",
                 "customer_group": "Commercial",
                 "territory": "All Territories",
                 "custom_cin7_customer_id": customer_id,
                 "default_price_list": c.get("PriceTier") or "Standard Selling",
             }
+            if not existing_customer_name:
+                updated_fields["customer_name"] = customer_name  # Set name only if new
 
             customer.update(updated_fields)
             customer.save(ignore_permissions=True)
 
-            # Insert or Update all addresses
-            addresses = c.get("Addresses", [])
-            valid_types = {"Billing", "Shipping"}
-
-            for idx, addr in enumerate(addresses):
+            # --------------------
+            # Address Handling
+            # --------------------
+            for addr in c.get("Addresses", []):
                 addr_type = (addr.get("Type") or "").strip().title()
-                if addr_type not in valid_types:
+                if addr_type not in {"Billing", "Shipping"}:
                     continue
 
                 line1 = addr.get("Line1") or "Unknown Address Line 1"
@@ -134,7 +154,7 @@ def sync_customers():
                 state = addr.get("State") or ""
                 pincode = addr.get("Postcode") or ""
                 country = addr.get("Country") or "Australia"
-                address_title = f"{customer_name}"
+                address_title = customer.customer_name  # use existing name
 
                 addr_filter = {
                     "address_title": address_title,
@@ -145,7 +165,6 @@ def sync_customers():
 
                 existing_address_name = frappe.db.exists("Address", addr_filter)
                 if not existing_address_name:
-                    # Insert new address
                     address = frappe.get_doc({
                         "doctype": "Address",
                         "address_title": address_title,
@@ -156,17 +175,12 @@ def sync_customers():
                         "state": state,
                         "pincode": pincode,
                         "country": country,
-                        "links": [{
-                            "link_doctype": "Customer",
-                            "link_name": customer.name
-                        }]
+                        "links": [{"link_doctype": "Customer", "link_name": customer.name}]
                     })
                     address.insert(ignore_permissions=True)
                 else:
-                    # Update existing address if values differ
                     address = frappe.get_doc("Address", existing_address_name)
                     updated = False
-
                     if address.address_line2 != line2:
                         address.address_line2 = line2
                         updated = True
@@ -179,45 +193,42 @@ def sync_customers():
                     if address.address_type != addr_type:
                         address.address_type = addr_type
                         updated = True
-
                     if updated:
                         address.save(ignore_permissions=True)
 
-            # Insert or Update all contacts
-            contacts = c.get("Contacts", [])
-            for idx, contact in enumerate(contacts):
-                name = contact.get("Name") or f"{customer_name} Contact {idx+1}"
-                phone = contact.get("Phone") or contact.get("MobilePhone") or ""
-                email = contact.get("Email") or ""
+            # --------------------
+            # Contact Handling
+            # --------------------
+            for idx, contact in enumerate(c.get("Contacts", [])):
+                name = contact.get("Name") or f"{customer.customer_name} Contact {idx+1}"
+                phone = re.sub(r"[^\d+]", "", (contact.get("Phone") or contact.get("MobilePhone") or "").strip())
+                phone = phone if re.match(r"^\+?\d{8,15}$", phone) else ""
+                email = (contact.get("Email") or "").strip()
+
+                if not phone and not email:
+                    continue
 
                 contact_key = {"first_name": name, "email_id": email}
                 existing_contact_name = frappe.db.exists("Contact", contact_key)
 
                 if not existing_contact_name:
-                    # Insert new contact
                     contact_doc = frappe.get_doc({
                         "doctype": "Contact",
                         "first_name": name,
                         "email_ids": [{"email_id": email, "is_primary": 1}] if email else [],
                         "phone_nos": [{"phone": phone, "is_primary_phone": 1}] if phone else [],
-                        "links": [{
-                            "link_doctype": "Customer",
-                            "link_name": customer.name
-                        }]
+                        "links": [{"link_doctype": "Customer", "link_name": customer.name}]
                     })
                     contact_doc.insert(ignore_permissions=True)
                 else:
-                    # Update existing contact if phone/email changed
                     contact_doc = frappe.get_doc("Contact", existing_contact_name)
                     updated = False
-
                     if email and (not contact_doc.email_ids or contact_doc.email_ids[0].email_id != email):
                         contact_doc.email_ids = [{"email_id": email, "is_primary": 1}]
                         updated = True
                     if phone and (not contact_doc.phone_nos or contact_doc.phone_nos[0].phone != phone):
                         contact_doc.phone_nos = [{"phone": phone, "is_primary_phone": 1}]
                         updated = True
-
                     if updated:
                         contact_doc.save(ignore_permissions=True)
 
@@ -226,12 +237,14 @@ def sync_customers():
             errors.append(msg)
             frappe.log_error(frappe.get_traceback(), msg)
 
-    # Final log
+    # --------------------
+    # Final Logging
+    # --------------------
     status = "Success" if not errors else "Failure"
     log_cin7(
         title="CIN7 Customer Sync",
         method="GET",
-        url=url,
+        url=base_url,
         status=status,
         response=json.dumps(customers if not errors else {"errors": errors}, indent=2)
     )
@@ -245,31 +258,46 @@ def sync_customers():
 
 
 
-
 @frappe.whitelist()
 def sync_items():
-    """Sync CIN7 items to ERPNext"""
+    """Sync CIN7 items to ERPNext (with proper pagination using 'Total')"""
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
         frappe.throw(_("CIN7 Integration is not enabled."))
 
-    url = "https://inventory.dearsystems.com/ExternalApi/Products?Page=1"
+    base_url = "https://inventory.dearsystems.com/ExternalApi/Products"
     errors = []
+    items = []
+    page = 1
+    total = None
 
     try:
-        response = cin7._get(url)
-        items = response.get("Products", [])
+        while True:
+            url = f"{base_url}?Page={page}"
+            response = cin7._get(url)
 
-        if not isinstance(items, list):
-            raise ValueError("Invalid CIN7 response format.")
+            if total is None:
+                total = response.get("Total", 0)
 
-        frappe.logger().info(f"Fetched {len(items)} CIN7 items from CIN7")
+            page_items = response.get("Products", [])
+            if not isinstance(page_items, list):
+                raise ValueError(f"Invalid CIN7 response format on page {page}")
+
+            items.extend(page_items)
+            frappe.logger().info(f"Fetched {len(page_items)} items from CIN7 page {page}")
+
+            if len(items) >= total:
+                break
+
+            page += 1
+
+        frappe.logger().info(f"Total CIN7 items fetched: {len(items)}")
 
         for item_data in items:
             try:
                 _process_cin7_item(item_data)
             except Exception:
-                item_code = item_data.get("SKU") or item_data.get("ID")
+                item_code = (item_data.get("SKU") or item_data.get("ID") or "").strip()
                 msg = f"Failed to process item: {item_code}"
                 errors.append(msg)
                 frappe.log_error(frappe.get_traceback(), msg)
@@ -278,7 +306,7 @@ def sync_items():
         log_cin7(
             title="CIN7 Item Sync",
             method="GET",
-            url=url,
+            url=base_url,
             status=status,
             response=json.dumps(items if not errors else {"errors": errors}, indent=2)
         )
@@ -292,14 +320,12 @@ def sync_items():
 
     except Exception:
         frappe.log_error(frappe.get_traceback(), "CIN7 Item Sync - Fetch Error")
-        log_cin7(title="CIN7 Item Sync - Fetch Error", method="GET", url=url, status="Failed", response=frappe.get_traceback())
+        log_cin7(title="CIN7 Item Sync - Fetch Error", method="GET", url=base_url, status="Failed", response=frappe.get_traceback())
         frappe.throw(_("Unable to fetch items from CIN7."))
 
-
 def _process_cin7_item(item_data):
-    """Create or update Item and related price tiers"""
     cin7_item_id = item_data.get("ID")
-    item_code = item_data.get("SKU") or cin7_item_id
+    item_code = (item_data.get("SKU") or cin7_item_id).strip()
     item_name = item_data.get("Name")
 
     if not cin7_item_id:
@@ -309,14 +335,17 @@ def _process_cin7_item(item_data):
     uom = item_data.get("UOM")
     category = item_data.get("Category") or "All Item Groups"
     description = item_data.get("Description")
+    item_tax_template = item_data.get("SaleTaxRule")
 
     # Ensure Brand
     if brand and not frappe.db.exists("Brand", brand):
         frappe.get_doc({"doctype": "Brand", "brand": brand}).insert(ignore_permissions=True)
 
     # Ensure UOM
-    if uom and not frappe.db.exists("UOM", uom):
-        frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert(ignore_permissions=True)
+    if uom:
+        uom = uom.strip().title()
+        if not frappe.db.exists("UOM", {"uom_name": uom}):
+            frappe.get_doc({"doctype": "UOM", "uom_name": uom}).insert(ignore_permissions=True)
 
     item_name_in_db = frappe.get_value("Item", {"custom_cin7_item_id": cin7_item_id}, "name")
 
@@ -330,40 +359,39 @@ def _process_cin7_item(item_data):
             "description": description,
             "custom_publish_on_app": 1,
             "item_group": category,
+            "has_batch_no": 1,
+            "has_serial_no": 1,
+            "create_new_batch": 1,
             "stock_uom": uom,
         })
         item.insert(ignore_permissions=True)
+        create_item_tax_template(item, item_tax_template)
     else:
         item = frappe.get_doc("Item", item_name_in_db)
         updated = False
 
-        if item.item_name != item_name:
-            item.item_name = item_name
-            updated = True
-        if item.description != description:
-            item.description = description
-            updated = True
-        if item.brand != brand:
-            item.brand = brand
-            updated = True
-        if item.stock_uom != uom:
-            item.stock_uom = uom
-            updated = True
-        if item.item_group != category:
-            item.item_group = category
-            updated = True
+        for field, value in {
+            "item_name": item_name,
+            "description": description,
+            "brand": brand,
+            "stock_uom": uom,
+            "item_group": category
+        }.items():
+            if getattr(item, field) != value:
+                setattr(item, field, value)
+                updated = True
 
         if updated:
             item.save(ignore_permissions=True)
 
+        create_item_tax_template(item, item_tax_template)
+
     # Handle Price Tiers
     price_tiers = item_data.get("PriceTiers", {})
-
     for tier_name, tier_price in price_tiers.items():
         if not tier_price or tier_price == 0:
             continue
 
-        # Ensure Price List exists
         if not frappe.db.exists("Price List", tier_name):
             frappe.get_doc({
                 "doctype": "Price List",
@@ -372,7 +400,6 @@ def _process_cin7_item(item_data):
                 "enabled": 1
             }).insert(ignore_permissions=True)
 
-        # Ensure Item Price exists
         item_price_name = frappe.get_value("Item Price", {"item_code": item_code, "price_list": tier_name}, "name")
         if not item_price_name:
             frappe.get_doc({
@@ -387,7 +414,61 @@ def _process_cin7_item(item_data):
                 item_price.price_list_rate = tier_price
                 item_price.save(ignore_permissions=True)
 
+def create_item_tax_template(item_doc, item_tax_template):
+    if item_tax_template not in ["GST on Income", "GST Free Income"]:
+        return
+
+    tax_rate = 10 if item_tax_template == "GST on Income" else 0
+    company = frappe.defaults.get_user_default("Company")
+    company_abbr = frappe.get_value("Company", company, "abbr")
+
+    account_name = f"GST {tax_rate}% - {company_abbr}"
+    parent_account = f"Duties and Taxes - {company_abbr}"
+
+    if not frappe.db.exists("Account", account_name):
+        frappe.get_doc({
+            "doctype": "Account",
+            "account_name": f"GST {tax_rate}%",
+            "parent_account": parent_account,
+            "company": company,
+            "account_type": "Tax",
+            "is_group": 0,
+            "root_type": "Liability"
+        }).insert(ignore_permissions=True)
+
+    if not frappe.db.exists("Item Tax Template", {"title": item_tax_template, "company": company}):
+        frappe.get_doc({
+            "doctype": "Item Tax Template",
+            "title": item_tax_template,
+            "company": company,
+            "taxes": [{
+                "tax_type": account_name,
+                "tax_rate": tax_rate
+            }]
+        }).insert(ignore_permissions=True)
+
+    template_name = frappe.get_value("Item Tax Template", {
+        "title": item_tax_template,
+        "company": company
+    }, "name")
+
+    if isinstance(item_doc, str):
+        item_doc = frappe.get_doc("Item", item_doc)
+
+    item_doc.taxes = []
+    item_doc.append("taxes", {
+        "item_tax_template": template_name,
+        "tax_type": account_name,
+        "tax_rate": tax_rate
+    })
+    item_doc.item_tax_template = template_name
+    item_doc.save(ignore_permissions=True)
+
 # ------------ Item Group Sync -----------
+
+
+
+
 @frappe.whitelist()
 def sync_item_groups():
     """Sync CIN7 item groups to ERPNext"""
