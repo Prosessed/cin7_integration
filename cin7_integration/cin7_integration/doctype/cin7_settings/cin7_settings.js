@@ -79,12 +79,11 @@ frappe.ui.form.on("CIN7 Settings", {
 
     sync_sales_orders(frm) {
         frappe.call({
-            method: "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_sales_orders",
-            freeze: true,
-            freeze_message: "Queuing CIN7 Sales Orders sync...",
+            method: "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_cin7_sales_orders_background",
             callback: function(r) {
-                frappe.msgprint(r.message || "Sync started in background.");
+                frappe.msgprint(r.message || "CIN7 Sales Order sync has started in the background.");
             }
         });
     }
+
 });
