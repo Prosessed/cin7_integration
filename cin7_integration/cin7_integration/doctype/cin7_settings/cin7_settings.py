@@ -1,9 +1,12 @@
 # Copyright (c) 2025, Jaspreet Singh Sodhi and contributors
 # For license information, please see license.txt
 
+import datetime
+from cin7_integration.api import create_erpnext_sales_order_from_cin7, get_cin7_sale_ids, get_cin7_sale_order_details
 import frappe
 import requests
 import json
+from frappe.utils import now_datetime, add_days
 from frappe import _
 from frappe.model.document import Document
 
@@ -536,7 +539,6 @@ def sync_item_groups():
     return f"{status}: {len(groups)} groups processed"
 
 
-from frappe.utils import nowdate, nowtime
 
 @frappe.whitelist()
 def sync_stock():
@@ -644,3 +646,75 @@ def sync_stock():
             response=frappe.get_traceback()
         )
         frappe.throw(_("Stock reconciliation failed due to an unexpected error."))
+
+
+
+
+
+@frappe.whitelist()
+def sync_sales_orders():
+    created_since = (add_days(now_datetime(), -30)).strftime("%Y-%m-%dT00:00:00Z")
+    sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
+
+    count = 0
+    total = len(sales)
+
+    for i, sale in enumerate(sales, start=1):
+        sale_id = sale.get("SaleID")
+        customer_name = sale.get("Customer")
+
+        frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}")
+
+        sale_data = get_cin7_sale_order_details(sale_id)
+        if not sale_data:
+            continue
+
+        # Inject customer manually into sale_data since it's not present in detail API
+        sale_data["Customer"] = customer_name
+
+        so_name = create_erpnext_sales_order_from_cin7(sale_data)
+        if so_name:
+            log_cin7(
+                title=f"CIN7 Sales Order {so_name} Synced",
+                method="GET",
+                status='Success',
+            )
+            count += 1
+
+        frappe.publish_realtime('cin7_sync_progress', {
+            'current': i,
+            'total': total,
+            'synced': count
+        })
+
+    frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
+
+
+    created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
+
+
+    sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
+
+    count = 0
+    total = len(sales)
+
+    for i, sale_id in enumerate(sales, start=1):
+        sale_data = get_cin7_sale_order_details(sale_id)
+
+        if sale_data:
+            customer_name = sale_data.get("Customer")
+            sale_data["Customer"] = customer_name
+            so_name = create_erpnext_sales_order_from_cin7(sale_data)
+            if so_name:
+                log_cin7(
+                    title=f"CIN7 Sales Order {so_name} Synced",
+                    method="GET",
+                    status='Success',
+                )
+                frappe.logger().info(f"Created ERPNext Sales Order: {so_name}")
+                count += 1
+
+
+
+
+    frappe.logger().info(f"✅ Finished CIN7 Sales Sync. Total synced: {count}")

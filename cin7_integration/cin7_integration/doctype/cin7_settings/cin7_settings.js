@@ -10,9 +10,12 @@
 frappe.ui.form.on("CIN7 Settings", {
     refresh(frm) {
         frm.get_field("sync_items").$input.addClass('btn-primary');
+
         frm.get_field("sync_customer").$input.addClass('btn-primary');
         frm.get_field("sync_item_groups").$input.addClass('btn-primary');
         frm.get_field("sync_stock").$input.addClass('btn-primary');
+        frm.get_field("sync_sales_orders").$input.addClass('btn-primary');
+
 
     },
 
@@ -71,6 +74,17 @@ frappe.ui.form.on("CIN7 Settings", {
 
             },
 
+        });
+    },
+
+    sync_sales_orders(frm) {
+        frappe.call({
+            method: "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_sales_orders",
+            freeze: true,
+            freeze_message: "Queuing CIN7 Sales Orders sync...",
+            callback: function(r) {
+                frappe.msgprint(r.message || "Sync started in background.");
+            }
         });
     }
 });

@@ -1,6 +1,7 @@
 import frappe
 import requests
 import json
+from frappe.utils import add_days
 
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
@@ -110,3 +111,107 @@ def place_order_lines_on_cin7(doc):
         log_cin7('CIN7 PLACE ORDER', 'POST', api_url, response=error_message[:140])
         frappe.log_error(f"Response from CIN7:\n{error_message}\n\nTraceback:\n{frappe.get_traceback()}", "CIN7 Place Order Failed")
         frappe.throw(f"Failed to place Sales Order lines in CIN7: {error_message}")
+
+def get_cin7_sale_ids(saleStatus: str, createdSince: str) -> list:
+    cin7_settings = frappe.get_single("CIN7 Settings")
+    base_url = "https://inventory.dearsystems.com/ExternalApi/v2/saleList"
+
+    headers = {
+        "api-auth-accountid": cin7_settings.cin7_account_id,
+        "api-auth-applicationkey": cin7_settings.cin7_api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+
+    sale_list = []
+    page = 1
+    has_more = True
+
+    try:
+        while has_more:
+            url = f"{base_url}?Page={page}&Limit=100&CreatedSince={createdSince}&Status={saleStatus}"
+            response = requests.get(url, headers=headers)
+
+            if response.status_code != 200:
+                frappe.log_error(f"Cin7 API Error: {response.status_code} - {response.text}")
+                break
+
+            data = response.json()
+            sales = data.get("SaleList", [])
+            for sale in sales:
+                sale_list.append({
+                    "SaleID": sale.get("SaleID"),
+                    "Customer": sale.get("Customer")
+                })
+
+            total = data.get("Total", 0)
+            has_more = page * 100 < total
+            page += 1
+
+        return sale_list
+
+    except Exception as e:
+        frappe.log_error(f"Error occurred while fetching sales ID - {str(e)}")
+        return []
+
+
+def get_cin7_sale_order_details(sale_id: str) -> dict | None:
+    """
+    Fetch full sales order details from Cin7 Core using the SaleID.
+    """
+    try:
+        cin7_settings = frappe.get_single("CIN7 Settings")
+        url = f"https://inventory.dearsystems.com/ExternalApi/v2/sale/order?SaleID={sale_id}"
+        headers = {
+            "api-auth-accountid": cin7_settings.cin7_account_id,
+            "api-auth-applicationkey": cin7_settings.cin7_api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.json()
+
+    except Exception as e:
+        frappe.log_error(f"Error fetching Cin7 order {sale_id}: {str(e)}")
+        return None
+
+def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
+    try:
+        customer_name = sale_data.get("Customer")
+        frappe.logger().info(f"[DEBUG] Customer in sale_data: {customer_name}")
+
+        if not customer_name or not frappe.db.exists("Customer", customer_name):
+            frappe.log_error(f"Missing or unknown customer: {customer_name}")
+            return None
+
+        doc = frappe.new_doc("Sales Order")
+        doc.naming_series = "SO-"
+        doc.customer = customer_name
+        doc.transaction_date = sale_data.get("OrderDate", frappe.utils.nowdate())[:10]
+        doc.delivery_date = add_days(doc.transaction_date, 1)
+        doc.po_no = sale_data.get("SaleOrderNumber")
+        doc.custom_cin7_sale_id = sale_data.get("SaleID")
+        doc.base_total = sale_data.get("TotalBeforeTax") or 0
+        doc.total_taxes_and_charges = sale_data.get("Tax") or 0
+        doc.total = sale_data.get("Total") or 0
+        doc.taxes_and_charges = None
+
+        for line in sale_data.get("Lines", []):
+            doc.append("items", {
+                "item_code": line.get("SKU"),
+                "item_name": line.get("Name"),
+                "description": line.get("Comment") or line.get("Name"),
+                "qty": line.get("Quantity"),
+                "rate": line.get("Price"),
+                "discount_percentage": (line["Discount"] / line["Price"]) * 100 if line.get("Price") else 0,
+            })
+
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return doc.name
+
+    except Exception as e:
+        frappe.log_error(f"Error creating Sales Order for {sale_data.get('SaleOrderNumber')}: {str(e)}")
+        return None
