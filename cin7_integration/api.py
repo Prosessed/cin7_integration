@@ -1,7 +1,7 @@
 import frappe
 import requests
 import json
-from frappe.utils import add_days
+from frappe.utils import now_datetime, add_days
 
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
@@ -224,40 +224,46 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
             message=f"Error creating Sales Order for {sale_data.get('SaleOrderNumber')}: {str(e)}"
         )
         return None
-    try:
-        customer_name = sale_data.get("Customer")
-        frappe.logger().info(f"[DEBUG] Customer in sale_data: {customer_name}")
 
-        if not customer_name or not frappe.db.exists("Customer", customer_name):
-            frappe.log_error(f"Missing or unknown customer: {customer_name}")
-            return None
 
-        doc = frappe.new_doc("Sales Order")
-        doc.naming_series = "SO-"
-        doc.customer = customer_name
-        doc.transaction_date = sale_data.get("OrderDate", frappe.utils.nowdate())[:10]
-        doc.delivery_date = add_days(doc.transaction_date, 1)
-        doc.po_no = sale_data.get("SaleOrderNumber")
-        doc.custom_cin7_sale_id = sale_data.get("SaleID")
-        doc.base_total = sale_data.get("TotalBeforeTax") or 0
-        doc.total_taxes_and_charges = sale_data.get("Tax") or 0
-        doc.total = sale_data.get("Total") or 0
-        doc.taxes_and_charges = None
 
-        for line in sale_data.get("Lines", []):
-            doc.append("items", {
-                "item_code": line.get("SKU"),
-                "item_name": line.get("Name"),
-                "description": line.get("Comment") or line.get("Name"),
-                "qty": line.get("Quantity"),
-                "rate": line.get("Price"),
-                "discount_percentage": (line["Discount"] / line["Price"]) * 100 if line.get("Price") else 0,
-            })
+@frappe.whitelist()
+def sync_sales_orders():
+    created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
+    sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
 
-        doc.insert(ignore_permissions=True)
-        frappe.db.commit()
-        return doc.name
+    count = 0
+    total = len(sales)
 
-    except Exception as e:
-        frappe.log_error(f"Error creating Sales Order for {sale_data.get('SaleOrderNumber')}: {str(e)}")
-        return None
+    for i, sale in enumerate(sales, start=1):
+        sale_id = sale.get("SaleID")
+        customer_name = sale.get("Customer")
+
+        frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}")
+        sale_data = get_cin7_sale_order_details(sale_id)
+
+        if not sale_data:
+            continue
+
+        sale_data["Customer"] = customer_name
+        so_name = create_erpnext_sales_order_from_cin7(sale_data)
+
+        if so_name:
+            log_cin7(
+                title=f"CIN7 Sales Order {so_name} Synced",
+                method="GET",
+                status='Success',
+            )
+            frappe.logger().info(f"[SYNC] Created ERPNext Sales Order: {so_name}")
+            count += 1
+
+        frappe.publish_realtime('cin7_sync_progress', {
+            'current': i,
+            'total': total,
+            'synced': count
+        })
+
+    frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
+
+
+
