@@ -653,7 +653,7 @@ def sync_stock():
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
     frappe.enqueue(
-        "cin7_integration.cin7_integration.cin7_settings.sync_sales_orders",
+        "cin7_integration.cin7_integration.doctype.cin7_settings.cin7_settings.sync_sales_orders",
         queue="long",
         timeout=1800,
         job_name="Sync CIN7 Sales Orders",
