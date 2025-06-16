@@ -661,7 +661,7 @@ def sync_cin7_sales_orders_background():
 
     return "Sync started in background."
 
-
+@frappe.whitelist()
 def sync_sales_orders():
     created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
     sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
