@@ -650,10 +650,20 @@ def sync_stock():
 
 
 
-
 @frappe.whitelist()
+def sync_cin7_sales_orders_background():
+    frappe.enqueue(
+    "cin7_integration.cin7_integration.cin7_settings.sync_sales_orders",
+    queue="long",
+    timeout=1800,
+    job_name="Sync CIN7 Sales Orders"
+    )
+
+    return "Sync started in background."
+
+
 def sync_sales_orders():
-    created_since = (add_days(now_datetime(), -30)).strftime("%Y-%m-%dT00:00:00Z")
+    created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
     sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
 
     count = 0
@@ -664,21 +674,21 @@ def sync_sales_orders():
         customer_name = sale.get("Customer")
 
         frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}")
-
         sale_data = get_cin7_sale_order_details(sale_id)
+
         if not sale_data:
             continue
 
-        # Inject customer manually into sale_data since it's not present in detail API
         sale_data["Customer"] = customer_name
-
         so_name = create_erpnext_sales_order_from_cin7(sale_data)
+
         if so_name:
             log_cin7(
                 title=f"CIN7 Sales Order {so_name} Synced",
                 method="GET",
                 status='Success',
             )
+            frappe.logger().info(f"[SYNC] Created ERPNext Sales Order: {so_name}")
             count += 1
 
         frappe.publish_realtime('cin7_sync_progress', {
@@ -690,31 +700,4 @@ def sync_sales_orders():
     frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
 
 
-    created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
 
-
-    sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
-
-    count = 0
-    total = len(sales)
-
-    for i, sale_id in enumerate(sales, start=1):
-        sale_data = get_cin7_sale_order_details(sale_id)
-
-        if sale_data:
-            customer_name = sale_data.get("Customer")
-            sale_data["Customer"] = customer_name
-            so_name = create_erpnext_sales_order_from_cin7(sale_data)
-            if so_name:
-                log_cin7(
-                    title=f"CIN7 Sales Order {so_name} Synced",
-                    method="GET",
-                    status='Success',
-                )
-                frappe.logger().info(f"Created ERPNext Sales Order: {so_name}")
-                count += 1
-
-
-
-
-    frappe.logger().info(f"✅ Finished CIN7 Sales Sync. Total synced: {count}")
