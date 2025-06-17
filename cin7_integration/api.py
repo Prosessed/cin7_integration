@@ -19,8 +19,10 @@ def initiate_sales_order_on_cin7(doc):
         frappe.msgprint("Sales Order is already synced with CIN7.")
         return
 
-    if doc.get("custom_cin7_sale_id"):
+    if doc.get("custom_cin7_sale_id") is None:
         frappe.msgprint('Sales Order Already there on CIN7')
+        doc.workflow_state = 'Invoiced'
+        frappe.db.commit()
         return
 
 
@@ -134,7 +136,7 @@ def get_cin7_sale_ids(saleStatus: str, createdSince: str) -> list:
 
     try:
         while True:
-            url = f"{base_url}?Page={page}&Limit=100&CreatedSince={createdSince}&Status={saleStatus}"
+            url = f"{base_url}?Page={page}&Status={saleStatus}"
             response = requests.get(url, headers=headers)
 
             if response.status_code != 200:
