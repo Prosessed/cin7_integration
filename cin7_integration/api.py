@@ -19,6 +19,11 @@ def initiate_sales_order_on_cin7(doc):
         frappe.msgprint("Sales Order is already synced with CIN7.")
         return
 
+    if doc.get("custom_cin7_sale_id"):
+        frappe.msgprint('Sales Order Already there on CIN7')
+        return
+
+
     cin7_settings = frappe.get_single("CIN7 Settings")
     api_url = "https://inventory.dearsystems.com/ExternalApi/v2/sale"
     headers = {
@@ -195,7 +200,7 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
         doc = frappe.new_doc("Sales Order")
         doc.naming_series = "SO-"
         doc.customer = customer_name
-        doc.transaction_date = sale_data.get("OrderDate", frappe.utils.nowdate())[:10]
+        doc.transaction_date = sale_data.get("OrderDate")
         doc.delivery_date = add_days(doc.transaction_date, 1)
         doc.po_no = sale_data.get("SaleOrderNumber")
         doc.custom_cin7_sale_id = sale_id

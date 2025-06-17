@@ -363,7 +363,6 @@ def _process_cin7_item(item_data):
             "custom_publish_on_app": 1,
             "item_group": category,
             "has_batch_no": 1,
-            "has_serial_no": 1,
             "create_new_batch": 1,
             "stock_uom": uom,
         })
@@ -666,7 +665,7 @@ def sync_cin7_sales_orders_background():
 
 @frappe.whitelist()
 def sync_sales_orders():
-    created_since = (add_days(now_datetime(), -90)).strftime("%Y-%m-%dT00:00:00Z")
+    created_since = (add_days(now_datetime(), -180)).strftime("%Y-%m-%dT00:00:00Z")
     sales = get_cin7_sale_ids(saleStatus="INVOICED", createdSince=created_since)
 
     count = 0
