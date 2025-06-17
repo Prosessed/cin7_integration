@@ -119,8 +119,7 @@ def place_order_lines_on_cin7(doc):
         frappe.log_error(f"Response from CIN7:\n{error_message}\n\nTraceback:\n{frappe.get_traceback()}", "CIN7 Place Order Failed")
         frappe.throw(f"Failed to place Sales Order lines in CIN7: {error_message}")
 
-
-def get_cin7_sale_ids(saleStatus: str, createdSince: str) -> list:
+def get_cin7_sale_ids(saleStatus: str, start_page: int = 1) -> list:
     cin7_settings = frappe.get_single("CIN7 Settings")
     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/saleList"
 
@@ -132,7 +131,7 @@ def get_cin7_sale_ids(saleStatus: str, createdSince: str) -> list:
     }
 
     sale_list = []
-    page = 1
+    page = start_page
 
     try:
         while True:
@@ -163,6 +162,7 @@ def get_cin7_sale_ids(saleStatus: str, createdSince: str) -> list:
     except Exception as e:
         frappe.log_error(f"Error occurred while fetching sales ID - {str(e)}")
         return []
+
 
 def get_cin7_sale_order_details(sale_id: str) -> dict | None:
     try:
