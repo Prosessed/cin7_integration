@@ -1,3 +1,4 @@
+from datetime import datetime
 import frappe
 import requests
 import json
@@ -200,9 +201,12 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
             return None
 
         doc = frappe.new_doc("Sales Order")
+        order_date_str = sale_data.get("OrderDate")  # "2025-05-13T00:00:00"
+        order_date = datetime.fromisoformat(order_date_str).date()
+
+        doc.set("transaction_date", order_date)
         doc.naming_series = "SO-"
         doc.customer = customer_name
-        doc.transaction_date = sale_data.get("OrderDate")
         doc.delivery_date = add_days(doc.transaction_date, 1)
         doc.po_no = sale_data.get("SaleOrderNumber")
         doc.custom_cin7_sale_id = sale_id
