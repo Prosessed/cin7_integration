@@ -196,11 +196,9 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
             return None
 
         doc = frappe.new_doc("Sales Order")
-        order_date_str = sale_data.get("OrderDate")  # "2025-05-13T00:00:00"
-
-        doc.transaction_date = order_date_str
         doc.naming_series = "SO-"
         doc.customer = customer_name
+        doc.transaction_date = sale_data.get("OrderDate")
         doc.delivery_date = add_days(doc.transaction_date, 1)
         doc.po_no = sale_data.get("SaleOrderNumber")
         doc.custom_cin7_sale_id = sale_id
@@ -229,5 +227,3 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
             message=f"Error creating Sales Order for {sale_data.get('SaleOrderNumber')}: {str(e)}"
         )
         return None
-
-
