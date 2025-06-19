@@ -198,7 +198,7 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
         doc = frappe.new_doc("Sales Order")
         order_date_str = sale_data.get("OrderDate")  # "2025-05-13T00:00:00"
 
-        doc.set("transaction_date", order_date_str)
+        doc.transaction_date = order_date_str
         doc.naming_series = "SO-"
         doc.customer = customer_name
         doc.delivery_date = add_days(doc.transaction_date, 1)
