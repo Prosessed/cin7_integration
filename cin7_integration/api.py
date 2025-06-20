@@ -68,8 +68,8 @@ def initiate_sales_order_on_cin7(doc):
 
 
 def place_order_lines_on_cin7(doc):
-    if not doc.get("custom_cin7_order_id"):
-        frappe.throw("No CIN7 Order ID found. Please initiate the order first.")
+    # if not doc.get("custom_cin7_order_id"):
+    #     frappe.throw("No CIN7 Order ID found. Please initiate the order first.")
 
     cin7_settings = frappe.get_single("CIN7 Settings")
     api_url = "https://inventory.dearsystems.com/ExternalApi/v2/sale/order"
