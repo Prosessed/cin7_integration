@@ -1,8 +1,9 @@
+from click import DateTime
 import frappe
 import requests
 import json
 from frappe.utils import now_datetime, add_days
-
+from datetime import datetime
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
 
@@ -149,7 +150,8 @@ def get_cin7_sale_ids(saleStatus: str, start_page: int = 1) -> list:
             for sale in sales:
                 sale_list.append({
                     "SaleID": sale.get("SaleID"),
-                    "Customer": sale.get("Customer")
+                    "Customer": sale.get("Customer"),
+                    "OrderDate": sale.get("OrderDate")
                 })
 
             if page * 100 >= total:
@@ -202,6 +204,16 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
         doc = frappe.new_doc("Sales Order")
         doc.naming_series = "SO-"
         doc.customer = customer_name
+
+
+        order_date_str = sale_data.get("OrderDate")
+        order_date = datetime.fromisoformat(order_date_str).date() if order_date_str else None
+
+        if not order_date:
+            frappe.logger().error(f"[ERROR] Invalid or missing Order Date from CIN7 for SaleID: {sale_id} & order_date_str: {order_date_str}")
+
+            frappe.throw("Invalid or missing Order Date from CIN7")
+
         doc.transaction_date = sale_data.get("OrderDate")
         doc.delivery_date = add_days(doc.transaction_date, 1)
         doc.po_no = sale_data.get("SaleOrderNumber")

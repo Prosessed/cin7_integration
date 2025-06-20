@@ -9,6 +9,7 @@ import json
 from frappe.utils import now_datetime, add_days
 from frappe import _
 from frappe.model.document import Document
+from frappe.utils import nowtime
 
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
@@ -602,7 +603,7 @@ def sync_stock():
         sr_doc = frappe.new_doc("Stock Reconciliation")
         sr_doc.company = frappe.defaults.get_user_default("Company")
         sr_doc.purpose = "Stock Reconciliation"
-        sr_doc.posting_date = nowdate()
+        sr_doc.posting_date = nowtime()
         sr_doc.posting_time = nowtime()
 
         for item in items_to_reconcile.values():
