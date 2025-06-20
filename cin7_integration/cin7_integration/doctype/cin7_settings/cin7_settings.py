@@ -700,7 +700,7 @@ def sync_cin7_sales_orders_background():
 
 @frappe.whitelist()
 def sync_sales_orders():
-    page = 20
+    page = 16
     count = 0
 
     while True:
