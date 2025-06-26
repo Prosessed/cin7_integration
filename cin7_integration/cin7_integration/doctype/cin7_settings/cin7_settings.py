@@ -549,7 +549,7 @@ def sync_stock():
 
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
     # Update warehouse to match your ERP warehouse name exactly
-    warehouse = "Melbourne Warehouse - IF-M - L"
+    warehouse = "Melbourne Warehouse - IF-M"
 
     to_reconcile = []
 
