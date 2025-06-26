@@ -9,7 +9,7 @@ import json
 from frappe.utils import now_datetime, add_days
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import nowtime
+from frappe.utils import nowdate, nowtime
 
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
@@ -548,7 +548,9 @@ def sync_stock():
         frappe.throw(_("CIN7 Integration is not enabled."))
 
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-    warehouse = "Melbourne Warehouse - IF-M"
+    # Update warehouse to match your ERP warehouse name exactly
+    warehouse = "Melbourne Warehouse - IF-M - L"
+
     to_reconcile = []
 
     try:
@@ -597,7 +599,7 @@ def sync_stock():
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
-        sr.purpose = "Stock Reconciliation"  # Safer for operational syncs
+        sr.purpose = "Stock Reconciliation"  # Correct for operational syncs
         sr.posting_date = nowdate()
         sr.posting_time = nowtime()
 
@@ -631,6 +633,7 @@ def sync_stock():
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
+
 
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
