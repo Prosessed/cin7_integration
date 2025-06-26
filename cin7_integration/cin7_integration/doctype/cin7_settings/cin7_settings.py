@@ -548,10 +548,9 @@ def sync_stock():
         frappe.throw(_("CIN7 Integration is not enabled."))
 
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-    # Update warehouse to match your ERP warehouse name exactly
     warehouse = "Melbourne Warehouse - IF-M"
 
-    to_reconcile = []
+    reconcile_map = {}
 
     try:
         response = cin7._get(url)
@@ -586,12 +585,15 @@ def sync_stock():
                 current_qty = float(bin_record.actual_qty or 0)
 
             if cin7_qty != current_qty:
-                to_reconcile.append({
+                key = f"{item_code}::{warehouse}"
+                reconcile_map[key] = {
                     "item_code": item_code,
                     "warehouse": warehouse,
                     "qty": cin7_qty
-                })
+                }
                 frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
+
+        to_reconcile = list(reconcile_map.values())
 
         if not to_reconcile:
             frappe.log_error("[CIN7] No discrepancies found. Stock Reconciliation not required.")
@@ -599,7 +601,7 @@ def sync_stock():
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
-        sr.purpose = "Stock Reconciliation"  # Correct for operational syncs
+        sr.purpose = "Stock Reconciliation"
         dt = now_datetime()
         sr.posting_date = dt.strftime("%Y-%m-%d")
         sr.posting_time = dt.strftime("%H:%M:%S")
@@ -628,13 +630,12 @@ def sync_stock():
         sr.insert(ignore_permissions=True)
         sr.submit()
 
-        frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} items.")
+        frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} unique items.")
         return f"Stock Reconciliation {sr.name} created. {len(to_reconcile)} items updated."
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
-
 
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
