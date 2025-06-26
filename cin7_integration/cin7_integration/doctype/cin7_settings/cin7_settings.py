@@ -600,8 +600,9 @@ def sync_stock():
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
         sr.purpose = "Stock Reconciliation"  # Correct for operational syncs
-        sr.posting_date = nowdate()
-        sr.posting_time = nowtime()
+        dt = now_datetime()
+        sr.posting_date = dt.strftime("%Y-%m-%d")
+        sr.posting_time = dt.strftime("%H:%M:%S")
 
         abbr = frappe.db.get_value("Company", sr.company, "abbr")
         account = frappe.db.get_value("Account", {
