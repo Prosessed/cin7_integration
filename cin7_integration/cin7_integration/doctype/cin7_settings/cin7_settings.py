@@ -548,7 +548,7 @@ def sync_stock():
         frappe.throw(_("CIN7 Integration is not enabled."))
 
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-    warehouse = "Melbourne Warehouse - IF-M - L"
+    warehouse = "Melbourne Warehouse - IF-M"
     to_reconcile = []
 
     try:
