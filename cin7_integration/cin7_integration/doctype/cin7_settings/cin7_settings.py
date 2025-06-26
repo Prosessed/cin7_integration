@@ -541,57 +541,75 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """CIN7 stock sync with Stock Reconciliation creation and clear first-time logic."""
+    """CIN7 stock sync with Stock Reconciliation creation, clear first-time logic, and pagination handling."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
         frappe.throw(_("CIN7 Integration is not enabled."))
 
-    url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+    base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
     warehouse = "Melbourne Warehouse - IF-M"
-
     reconcile_map = {}
 
+    total = None
+    page = 1
+    fetched_count = 0
+
     try:
-        response = cin7._get(url)
-        stocks = response.get("ProductAvailabilityList", [])
-        if not stocks:
-            frappe.throw(_("No stock data received from CIN7."))
+        while True:
+            url = f"{base_url}?Page={page}"
+            response = cin7._get(url)
 
-        frappe.log_error(f"[CIN7] Received {len(stocks)} items")
+            if total is None:
+                total = response.get("Total", 0)
 
-        for stock in stocks:
-            sku = stock.get("SKU")
-            if not sku:
-                frappe.log_error(f"[CIN7] Missing SKU in item: {stock}")
-                continue
+            stocks = response.get("ProductAvailabilityList", [])
+            if not isinstance(stocks, list):
+                frappe.throw(_("Invalid CIN7 response format."))
 
-            cin7_qty = float(stock.get("StockOnHand") or 0)
-            item_code = frappe.db.get_value("Item", {"item_code": sku})
+            if not stocks:
+                break  # No more data
 
-            if not item_code:
-                frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
-                continue
+            frappe.log_error(f"[CIN7] Received {len(stocks)} items from page {page}")
 
-            bin_record = frappe.db.get_value("Bin", {
-                "item_code": item_code,
-                "warehouse": warehouse
-            }, ["name", "actual_qty"], as_dict=True)
+            for stock in stocks:
+                sku = stock.get("SKU")
+                if not sku:
+                    frappe.log_error(f"[CIN7] Missing SKU in item: {stock}")
+                    continue
 
-            if not bin_record:
-                current_qty = 0.0
-                frappe.log_error(f"[CIN7] Bin does not exist for {item_code} in {warehouse}, treating as 0 qty.")
-            else:
-                current_qty = float(bin_record.actual_qty or 0)
+                cin7_qty = float(stock.get("StockOnHand") or 0)
+                item_code = frappe.db.get_value("Item", {"item_code": sku})
 
-            if cin7_qty != current_qty:
-                key = f"{item_code}::{warehouse}"
-                reconcile_map[key] = {
+                if not item_code:
+                    frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
+                    continue
+
+                bin_record = frappe.db.get_value("Bin", {
                     "item_code": item_code,
-                    "warehouse": warehouse,
-                    "qty": cin7_qty
-                }
-                frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
+                    "warehouse": warehouse
+                }, ["name", "actual_qty"], as_dict=True)
+
+                if not bin_record:
+                    current_qty = 0.0
+                    frappe.log_error(f"[CIN7] Bin does not exist for {item_code} in {warehouse}, treating as 0 qty.")
+                else:
+                    current_qty = float(bin_record.actual_qty or 0)
+
+                if cin7_qty != current_qty:
+                    key = f"{item_code}::{warehouse}"
+                    reconcile_map[key] = {
+                        "item_code": item_code,
+                        "warehouse": warehouse,
+                        "qty": cin7_qty
+                    }
+                    frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
+
+            fetched_count += len(stocks)
+            if fetched_count >= total:
+                break  # All items fetched
+
+            page += 1
 
         to_reconcile = list(reconcile_map.values())
 
