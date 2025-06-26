@@ -541,7 +541,7 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """Minimal CIN7 stock sync with Stock Reconciliation creation and debug logging."""
+    """CIN7 stock sync with Stock Reconciliation creation and clear first-time logic."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
@@ -572,10 +572,16 @@ def sync_stock():
                 frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
                 continue
 
-            current_qty = float(frappe.db.get_value("Bin", {
+            bin_record = frappe.db.get_value("Bin", {
                 "item_code": item_code,
                 "warehouse": warehouse
-            }, "actual_qty") or 0)
+            }, ["name", "actual_qty"], as_dict=True)
+
+            if not bin_record:
+                current_qty = 0.0
+                frappe.log_error(f"[CIN7] Bin does not exist for {item_code} in {warehouse}, treating as 0 qty.")
+            else:
+                current_qty = float(bin_record.actual_qty or 0)
 
             if cin7_qty != current_qty:
                 to_reconcile.append({
@@ -591,8 +597,8 @@ def sync_stock():
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
-        sr.purpose = "Opening Stock"
-        sr.posting_date = nowtime()
+        sr.purpose = "Stock Reconciliation"  # Safer for operational syncs
+        sr.posting_date = nowdate()
         sr.posting_time = nowtime()
 
         abbr = frappe.db.get_value("Company", sr.company, "abbr")
@@ -604,7 +610,7 @@ def sync_stock():
         }, "name")
 
         if not account:
-            frappe.throw(_("No valid Asset/Liability account found for Opening Stock."))
+            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
 
         sr.difference_account = account
 
@@ -625,7 +631,6 @@ def sync_stock():
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
-
 
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
