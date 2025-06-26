@@ -541,33 +541,35 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """Sync stock from CIN7 and create Stock Reconciliation in ERPNext, including batch support."""
+    """Minimal CIN7 stock sync with Stock Reconciliation creation and debug logging."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
         frappe.throw(_("CIN7 Integration is not enabled."))
 
     url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-    skipped_items = []
-    items_to_reconcile = {}
+    warehouse = "Melbourne Warehouse - IF-M - L"
+    to_reconcile = []
 
     try:
-        # 1. Fetch stock from CIN7
         response = cin7._get(url)
         stocks = response.get("ProductAvailabilityList", [])
         if not stocks:
             frappe.throw(_("No stock data received from CIN7."))
 
-        warehouse = "Melbourne Warehouse - IF-M - L"
+        frappe.log_error(f"[CIN7] Received {len(stocks)} items")
 
-        # 2. Build item list
         for stock in stocks:
             sku = stock.get("SKU")
-            cin7_qty = float(stock.get("OnHand") or 0)
+            if not sku:
+                frappe.log_error(f"[CIN7] Missing SKU in item: {stock}")
+                continue
 
+            cin7_qty = float(stock.get("StockOnHand") or 0)
             item_code = frappe.db.get_value("Item", {"item_code": sku})
+
             if not item_code:
-                skipped_items.append(f"SKU not found in ERP: {sku}")
+                frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
                 continue
 
             current_qty = float(frappe.db.get_value("Bin", {
@@ -575,114 +577,54 @@ def sync_stock():
                 "warehouse": warehouse
             }, "actual_qty") or 0)
 
-            if cin7_qty == current_qty:
-                skipped_items.append(f"Unchanged qty for {item_code} ({warehouse}): {cin7_qty}")
-                continue
-
-            items_to_reconcile[(item_code, warehouse)] = {
-                "item_code": item_code,
-                "warehouse": warehouse,
-                "qty": cin7_qty,
-                "valuation_rate": 10.0
-            }
-
-        if not items_to_reconcile:
-            frappe.msgprint(_("No changes detected. Stock Reconciliation not required."), indicator="blue")
-            return "No changes detected. Nothing to reconcile."
-
-        # 3. Create Stock Reconciliation
-        try:
-            sr_doc = frappe.new_doc("Stock Reconciliation")
-            sr_doc.company = frappe.defaults.get_user_default("Company")
-            sr_doc.purpose = "Stock Reconciliation"
-            sr_doc.posting_date = nowtime()
-            sr_doc.posting_time = nowtime()
-
-            for item in items_to_reconcile.values():
-                item_code = item["item_code"]
-                item_doc = frappe.get_doc("Item", item_code)
-                batch_no = None
-
-                if item_doc.has_batch_no:
-                    # Try to find an existing batch
-                    batch_no = frappe.db.get_value("Batch", {
-                        "item": item_code,
-                        "disabled": 0
-                    }, "name")
-
-                    # Create a batch if none exists
-                    if not batch_no:
-                        new_batch = frappe.get_doc({
-                            "doctype": "Batch",
-                            "item": item_code,
-                            "batch_qty" : cin7_qty,
-                            "batch_id": None,
-                            "manufacturing_date": frappe.utils.nowdate()
-                        })
-                        new_batch.insert()
-                        batch_no = new_batch.name
-
-                # Build reconciliation row
-                row = {
+            if cin7_qty != current_qty:
+                to_reconcile.append({
                     "item_code": item_code,
-                    "warehouse": item["warehouse"],
-                    "qty": item["qty"],
-                    "valuation_rate": item["valuation_rate"]
-                }
+                    "warehouse": warehouse,
+                    "qty": cin7_qty
+                })
+                frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
 
+        if not to_reconcile:
+            frappe.log_error("[CIN7] No discrepancies found. Stock Reconciliation not required.")
+            return "No changes detected."
 
-                frappe.logger().info(f"[CIN7] Reconciliation row: {row}")
-                sr_doc.append("items", row)
+        sr = frappe.new_doc("Stock Reconciliation")
+        sr.company = frappe.defaults.get_user_default("Company")
+        sr.purpose = "Opening Stock"
+        sr.posting_date = nowtime()
+        sr.posting_time = nowtime()
 
-            sr_doc.insert(ignore_permissions=True)
-            sr_doc.submit()
+        abbr = frappe.db.get_value("Company", sr.company, "abbr")
+        account = frappe.db.get_value("Account", {
+            "account_name": "Temporary Opening",
+            "company": sr.company,
+            "root_type": ["in", ["Asset", "Liability"]],
+            "is_group": 0
+        }, "name")
 
-            # 4. Log success
-            log_cin7(
-                title=f"Stock Reconciliation {sr_doc.name} Created",
-                method="POST",
-                url=url,
-                status="Success",
-                response=json.dumps({
-                    "reconciled_items": len(items_to_reconcile),
-                    "skipped_items": skipped_items
-                }, indent=2)
-            )
+        if not account:
+            frappe.throw(_("No valid Asset/Liability account found for Opening Stock."))
 
-            # 5. Show feedback
-            if skipped_items:
-                frappe.msgprint(
-                    title="CIN7 Sync Complete (Some Skipped)",
-                    msg="<br>".join(skipped_items),
-                    indicator="orange"
-                )
-            else:
-                frappe.msgprint(f"Stock Reconciliation {sr_doc.name} created successfully.")
+        sr.difference_account = account
 
-            return f"Success: {len(items_to_reconcile)} items reconciled"
+        for item in to_reconcile:
+            sr.append("items", {
+                "item_code": item["item_code"],
+                "warehouse": item["warehouse"],
+                "qty": item["qty"],
+                "use_serial_batch_fields": 1
+            })
 
-        except Exception as e:
-            frappe.log_error(frappe.get_traceback(), "Stock Reconciliation Insert/Submit Failed")
-            log_cin7(
-                title="Stock Reconciliation Insert/Submit Failed",
-                method="POST",
-                url=url,
-                status="Failure",
-                response=frappe.get_traceback()
-            )
-            frappe.throw(_("Failed to create Stock Reconciliation. Check error log."))
+        sr.insert(ignore_permissions=True)
+        sr.submit()
 
-    except Exception:
-        frappe.log_error(frappe.get_traceback(), "CIN7 Stock Sync - Fatal Error")
-        log_cin7(
-            title="CIN7 Stock Sync - Fatal Error",
-            method="POST",
-            url=url,
-            status="Failure",
-            response=frappe.get_traceback()
-        )
-        frappe.throw(_("Stock reconciliation failed due to an unexpected error."))
+        frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} items.")
+        return f"Stock Reconciliation {sr.name} created. {len(to_reconcile)} items updated."
 
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
+        frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 
 @frappe.whitelist()
@@ -700,7 +642,7 @@ def sync_cin7_sales_orders_background():
 
 @frappe.whitelist()
 def sync_sales_orders():
-    page = 16
+    page = 10
     count = 0
 
     while True:
@@ -736,3 +678,5 @@ def sync_sales_orders():
         page += 1
 
     frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
+
+
