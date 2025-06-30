@@ -723,18 +723,18 @@ def sync_stock():
         # sr.posting_date = dt.strftime("%Y-%m-%d")
         # sr.posting_time = dt.strftime("%H:%M:%S")
 
-        abbr = frappe.db.get_value("Company", sr.company, "abbr")
-        account = frappe.db.get_value("Account", {
-            "account_name": "Stock Adjustment",
-            "company": sr.company,
-            "root_type": ["in", ["Expense"]],
-            "is_group": 0
-        }, "name")
+        # abbr = frappe.db.get_value("Company", sr.company, "abbr")
+        # account = frappe.db.get_value("Account", {
+        #     "account_name": "Stock Adjustment",
+        #     "company": sr.company,
+        #     "root_type": ["in", ["Expense"]],
+        #     "is_group": 0
+        # }, "name")
 
-        if not account:
-            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
+        # if not account:
+        #     frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
 
-        sr.difference_account = account
+        # sr.difference_account = account
 
         for item in to_reconcile:
             sr.append("items", {
