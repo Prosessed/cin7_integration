@@ -541,7 +541,7 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """Sync CIN7 stock with ERPNext Stock Reconciliation, summing batch-wise stock and handling valuation rate."""
+    """CIN7 stock sync with Stock Reconciliation creation, summing batch-wise stock, and original account logic."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
@@ -595,8 +595,11 @@ def sync_stock():
                 break
             page += 1
 
-        if not reconcile_map:
-            return "No stock discrepancies found."
+        to_reconcile = list(reconcile_map.values())
+
+        if not to_reconcile:
+            frappe.log_error("[CIN7] No discrepancies found. Stock Reconciliation not required.")
+            return "No changes detected."
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
@@ -605,18 +608,20 @@ def sync_stock():
         sr.posting_date = dt.strftime("%Y-%m-%d")
         sr.posting_time = dt.strftime("%H:%M:%S")
 
+        abbr = frappe.db.get_value("Company", sr.company, "abbr")
         account = frappe.db.get_value("Account", {
+            "account_name": "Temporary Opening - IF-M",
             "company": sr.company,
             "root_type": ["in", ["Asset", "Liability"]],
             "is_group": 0
         }, "name")
 
         if not account:
-            frappe.throw(_("No valid Asset or Liability account found for Stock Reconciliation."))
+            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
 
         sr.difference_account = account
 
-        for item in reconcile_map.values():
+        for item in to_reconcile:
             valuation_rate = frappe.db.get_value("Item", item["item_code"], "custom_cin7_average_cost") or 0
 
             sr.append("items", {
@@ -630,11 +635,13 @@ def sync_stock():
         sr.insert(ignore_permissions=True)
         sr.submit()
 
-        return f"Stock Reconciliation {sr.name} created with {len(reconcile_map)} item(s) updated."
+        frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} unique items.")
+        return f"Stock Reconciliation {sr.name} created. {len(to_reconcile)} items updated."
 
     except Exception:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
+
 
 # @frappe.whitelist()
 # def sync_stock():
