@@ -725,9 +725,9 @@ def sync_stock():
 
         abbr = frappe.db.get_value("Company", sr.company, "abbr")
         account = frappe.db.get_value("Account", {
-            "account_name": "Temporary Opening",
+            "account_name": "Stock Adjustment",
             "company": sr.company,
-            "root_type": ["in", ["Asset", "Liability"]],
+            "root_type": ["in", ["Expense"]],
             "is_group": 0
         }, "name")
 
