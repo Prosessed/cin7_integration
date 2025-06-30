@@ -474,6 +474,7 @@ def create_item_tax_template(item_doc, item_tax_template):
 
 @frappe.whitelist()
 def sync_item_groups():
+
     """Sync CIN7 item groups to ERPNext"""
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
@@ -538,6 +539,7 @@ def sync_item_groups():
 
     return f"{status}: {len(groups)} groups processed"
 @frappe.whitelist()
+@frappe.whitelist()
 def sync_stock():
     """CIN7 stock sync with Stock Reconciliation creation, summing batch-wise stock, and original account logic."""
 
@@ -601,32 +603,23 @@ def sync_stock():
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
-        sr.purpose = "Stock Reconciliation"
 
-        # dt = now_datetime()
-        # sr.posting_date = dt.strftime("%Y-%m-%d")
-        # sr.posting_time = dt.strftime("%H:%M:%S")
-
-        # # Ensure posting_date is not before company creation
-        # company_creation = frappe.db.get_value("Company", sr.company, "creation")
-        # if sr.posting_date < str(company_creation).split(" ")[0]:
-        #     sr.posting_date = str(company_creation).split(" ")[0]
-
-        # # Explicitly mark as regular reconciliation (not Opening Entry)
-        # sr.is_opening = "No"
-
-        # Fetch valid difference account (Asset or Liability)
-        account = frappe.db.get_value("Account", {
-            "account_name": "Temporary Opening",
+        # Check if Opening Stock Reconciliation already exists
+        opening_exists = frappe.db.exists({
+            "doctype": "Stock Reconciliation",
             "company": sr.company,
-            "root_type": ["in", ["Asset", "Liability"]],
-            "is_group": 0
-        }, "name")
+            "purpose": "Opening Stock",
+            "docstatus": 1  # Submitted
+        })
 
-        if not account:
-            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
-
-        sr.difference_account = account
+        if opening_exists:
+            sr.purpose = "Stock Reconciliation"
+            sr.is_opening = "No"
+            sr.difference_account = "Stock Adjustment - IF-M"
+        else:
+            sr.purpose = "Opening Stock"
+            sr.is_opening = "Yes"
+            sr.difference_account = "Temporary Opening - IF-M"
 
         for item in to_reconcile:
             sr.append("items", {
