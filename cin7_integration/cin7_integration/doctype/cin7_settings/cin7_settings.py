@@ -541,7 +541,7 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """CIN7 stock sync with Stock Reconciliation creation, clear first-time logic, and pagination handling."""
+    """Sync CIN7 stock with ERP Stock Reconciliation."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
@@ -551,15 +551,11 @@ def sync_stock():
     warehouse = "Melbourne Warehouse - IF-M"
     reconcile_map = {}
 
-    total = None
-    page = 1
-    fetched_count = 0
+    total, page, fetched_count = None, 1, 0
 
     try:
         while True:
-            url = f"{base_url}?Page={page}"
-            response = cin7._get(url)
-
+            response = cin7._get(f"{base_url}?Page={page}")
             if total is None:
                 total = response.get("Total", 0)
 
@@ -568,54 +564,39 @@ def sync_stock():
                 frappe.throw(_("Invalid CIN7 response format."))
 
             if not stocks:
-                break  # No more data
+                break
 
-            frappe.log_error(f"[CIN7] Received {len(stocks)} items from page {page}")
-
+            sku_qty_map = {}
             for stock in stocks:
                 sku = stock.get("SKU")
                 if not sku:
-                    frappe.log_error(f"[CIN7] Missing SKU in item: {stock}")
                     continue
+                sku_qty_map[sku] = sku_qty_map.get(sku, 0) + float(stock.get("StockOnHand") or 0)
 
-                cin7_qty = float(stock.get("StockOnHand") or 0)
+            for sku, cin7_qty in sku_qty_map.items():
                 item_code = frappe.db.get_value("Item", {"item_code": sku})
-
                 if not item_code:
-                    frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
                     continue
 
-                bin_record = frappe.db.get_value("Bin", {
+                current_qty = frappe.db.get_value("Bin", {
                     "item_code": item_code,
                     "warehouse": warehouse
-                }, ["name", "actual_qty"], as_dict=True)
+                }, "actual_qty") or 0
 
-                if not bin_record:
-                    current_qty = 0.0
-                    frappe.log_error(f"[CIN7] Bin does not exist for {item_code} in {warehouse}, treating as 0 qty.")
-                else:
-                    current_qty = float(bin_record.actual_qty or 0)
-
-                if cin7_qty != current_qty:
-                    key = f"{item_code}::{warehouse}"
-                    reconcile_map[key] = {
+                if float(current_qty) != cin7_qty:
+                    reconcile_map[f"{item_code}::{warehouse}"] = {
                         "item_code": item_code,
                         "warehouse": warehouse,
                         "qty": cin7_qty
                     }
-                    frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
 
             fetched_count += len(stocks)
             if fetched_count >= total:
-                break  # All items fetched
-
+                break
             page += 1
 
-        to_reconcile = list(reconcile_map.values())
-
-        if not to_reconcile:
-            frappe.log_error("[CIN7] No discrepancies found. Stock Reconciliation not required.")
-            return "No changes detected."
+        if not reconcile_map:
+            return "No stock discrepancies found."
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
@@ -624,20 +605,17 @@ def sync_stock():
         sr.posting_date = dt.strftime("%Y-%m-%d")
         sr.posting_time = dt.strftime("%H:%M:%S")
 
-        abbr = frappe.db.get_value("Company", sr.company, "abbr")
-        account = frappe.db.get_value("Account", {
+        sr.difference_account = frappe.db.get_value("Account", {
             "account_name": "Temporary Opening",
             "company": sr.company,
             "root_type": ["in", ["Asset", "Liability"]],
             "is_group": 0
         }, "name")
 
-        if not account:
+        if not sr.difference_account:
             frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
 
-        sr.difference_account = account
-
-        for item in to_reconcile:
+        for item in reconcile_map.values():
             sr.append("items", {
                 "item_code": item["item_code"],
                 "warehouse": item["warehouse"],
@@ -648,12 +626,128 @@ def sync_stock():
         sr.insert(ignore_permissions=True)
         sr.submit()
 
-        frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} unique items.")
-        return f"Stock Reconciliation {sr.name} created. {len(to_reconcile)} items updated."
+        return f"Stock Reconciliation {sr.name} created with {len(reconcile_map)} item(s) updated."
 
-    except Exception as e:
+    except Exception:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
+
+
+# @frappe.whitelist()
+# def sync_stock():
+#     """CIN7 stock sync with Stock Reconciliation creation, clear first-time logic, and pagination handling."""
+
+#     cin7 = frappe.get_single("CIN7 Settings")
+#     if not cin7.enable:
+#         frappe.throw(_("CIN7 Integration is not enabled."))
+
+#     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+#     warehouse = "Melbourne Warehouse - IF-M"
+#     reconcile_map = {}
+
+#     total = None
+#     page = 1
+#     fetched_count = 0
+
+#     try:
+#         while True:
+#             url = f"{base_url}?Page={page}"
+#             response = cin7._get(url)
+
+#             if total is None:
+#                 total = response.get("Total", 0)
+
+#             stocks = response.get("ProductAvailabilityList", [])
+#             if not isinstance(stocks, list):
+#                 frappe.throw(_("Invalid CIN7 response format."))
+
+#             if not stocks:
+#                 break  # No more data
+
+#             frappe.log_error(f"[CIN7] Received {len(stocks)} items from page {page}")
+
+#             for stock in stocks:
+#                 sku = stock.get("SKU")
+#                 if not sku:
+#                     frappe.log_error(f"[CIN7] Missing SKU in item: {stock}")
+#                     continue
+
+#                 cin7_qty = float(stock.get("StockOnHand") or 0)
+#                 item_code = frappe.db.get_value("Item", {"item_code": sku})
+
+#                 if not item_code:
+#                     frappe.log_error(f"[CIN7] SKU not found in ERP: {sku}")
+#                     continue
+
+#                 bin_record = frappe.db.get_value("Bin", {
+#                     "item_code": item_code,
+#                     "warehouse": warehouse
+#                 }, ["name", "actual_qty"], as_dict=True)
+
+#                 if not bin_record:
+#                     current_qty = 0.0
+#                     frappe.log_error(f"[CIN7] Bin does not exist for {item_code} in {warehouse}, treating as 0 qty.")
+#                 else:
+#                     current_qty = float(bin_record.actual_qty or 0)
+
+#                 if cin7_qty != current_qty:
+#                     key = f"{item_code}::{warehouse}"
+#                     reconcile_map[key] = {
+#                         "item_code": item_code,
+#                         "warehouse": warehouse,
+#                         "qty": cin7_qty
+#                     }
+#                     frappe.log_error(f"[CIN7] Marked for reconciliation: {item_code} | CIN7 Qty: {cin7_qty} | ERP Qty: {current_qty}")
+
+#             fetched_count += len(stocks)
+#             if fetched_count >= total:
+#                 break  # All items fetched
+
+#             page += 1
+
+#         to_reconcile = list(reconcile_map.values())
+
+#         if not to_reconcile:
+#             frappe.log_error("[CIN7] No discrepancies found. Stock Reconciliation not required.")
+#             return "No changes detected."
+
+#         sr = frappe.new_doc("Stock Reconciliation")
+#         sr.company = frappe.defaults.get_user_default("Company")
+#         sr.purpose = "Stock Reconciliation"
+#         dt = now_datetime()
+#         sr.posting_date = dt.strftime("%Y-%m-%d")
+#         sr.posting_time = dt.strftime("%H:%M:%S")
+
+#         abbr = frappe.db.get_value("Company", sr.company, "abbr")
+#         account = frappe.db.get_value("Account", {
+#             "account_name": "Temporary Opening",
+#             "company": sr.company,
+#             "root_type": ["in", ["Asset", "Liability"]],
+#             "is_group": 0
+#         }, "name")
+
+#         if not account:
+#             frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
+
+#         sr.difference_account = account
+
+#         for item in to_reconcile:
+#             sr.append("items", {
+#                 "item_code": item["item_code"],
+#                 "warehouse": item["warehouse"],
+#                 "qty": item["qty"],
+#                 "use_serial_batch_fields": 1
+#             })
+
+#         sr.insert(ignore_permissions=True)
+#         sr.submit()
+
+#         frappe.log_error(f"[CIN7] Stock Reconciliation {sr.name} created for {len(to_reconcile)} unique items.")
+#         return f"Stock Reconciliation {sr.name} created. {len(to_reconcile)} items updated."
+
+#     except Exception as e:
+#         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
+#         frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
