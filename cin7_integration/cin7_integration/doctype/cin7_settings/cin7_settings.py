@@ -608,27 +608,24 @@ def sync_stock():
         sr.posting_date = dt.strftime("%Y-%m-%d")
         sr.posting_time = dt.strftime("%H:%M:%S")
 
-        abbr = frappe.db.get_value("Company", sr.company, "abbr")
-        account = frappe.db.get_value("Account", {
-            "account_name": "Temporary Opening - IF-M",
-            "company": sr.company,
-            "root_type": ["in", ["Asset", "Liability"]],
-            "is_group": 0
-        }, "name")
+        # abbr = frappe.db.get_value("Company", sr.company, "abbr")
+        # account = frappe.db.get_value("Account", {
+        #     "account_name": "Temporary Opening",
+        #     "company": sr.company,
+        #     "root_type": ["in", ["Asset", "Liability"]],
+        #     "is_group": 0
+        # }, "name")
 
-        if not account:
-            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
+        # if not account:
+        #     frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
 
-        sr.difference_account = account
+        # sr.difference_account = account
 
         for item in to_reconcile:
-            valuation_rate = frappe.db.get_value("Item", item["item_code"], "custom_cin7_average_cost") or 0
-
             sr.append("items", {
                 "item_code": item["item_code"],
                 "warehouse": item["warehouse"],
                 "qty": item["qty"],
-                "valuation_rate": valuation_rate,
                 "use_serial_batch_fields": 1
             })
 
