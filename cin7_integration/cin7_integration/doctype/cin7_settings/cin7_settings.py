@@ -541,7 +541,7 @@ def sync_item_groups():
 
 @frappe.whitelist()
 def sync_stock():
-    """Sync CIN7 stock with ERP Stock Reconciliation."""
+    """Sync CIN7 stock with ERPNext Stock Reconciliation, summing batch-wise stock and handling valuation rate."""
 
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
@@ -605,21 +605,25 @@ def sync_stock():
         sr.posting_date = dt.strftime("%Y-%m-%d")
         sr.posting_time = dt.strftime("%H:%M:%S")
 
-        sr.difference_account = frappe.db.get_value("Account", {
-            "account_name": "Temporary Opening",
+        account = frappe.db.get_value("Account", {
             "company": sr.company,
             "root_type": ["in", ["Asset", "Liability"]],
             "is_group": 0
         }, "name")
 
-        if not sr.difference_account:
-            frappe.throw(_("No valid Asset/Liability account found for Stock Reconciliation."))
+        if not account:
+            frappe.throw(_("No valid Asset or Liability account found for Stock Reconciliation."))
+
+        sr.difference_account = account
 
         for item in reconcile_map.values():
+            valuation_rate = frappe.db.get_value("Item", item["item_code"], "custom_cin7_average_cost") or 0
+
             sr.append("items", {
                 "item_code": item["item_code"],
                 "warehouse": item["warehouse"],
                 "qty": item["qty"],
+                "valuation_rate": valuation_rate,
                 "use_serial_batch_fields": 1
             })
 
@@ -631,7 +635,6 @@ def sync_stock():
     except Exception:
         frappe.log_error(frappe.get_traceback(), "[CIN7] Stock Sync Failed")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
-
 
 # @frappe.whitelist()
 # def sync_stock():
