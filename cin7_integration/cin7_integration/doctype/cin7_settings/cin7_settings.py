@@ -603,17 +603,17 @@ def sync_stock():
         sr.company = frappe.defaults.get_user_default("Company")
         sr.purpose = "Stock Reconciliation"
 
-        dt = now_datetime()
-        sr.posting_date = dt.strftime("%Y-%m-%d")
-        sr.posting_time = dt.strftime("%H:%M:%S")
+        # dt = now_datetime()
+        # sr.posting_date = dt.strftime("%Y-%m-%d")
+        # sr.posting_time = dt.strftime("%H:%M:%S")
 
-        # Ensure posting_date is not before company creation
-        company_creation = frappe.db.get_value("Company", sr.company, "creation")
-        if sr.posting_date < str(company_creation).split(" ")[0]:
-            sr.posting_date = str(company_creation).split(" ")[0]
+        # # Ensure posting_date is not before company creation
+        # company_creation = frappe.db.get_value("Company", sr.company, "creation")
+        # if sr.posting_date < str(company_creation).split(" ")[0]:
+        #     sr.posting_date = str(company_creation).split(" ")[0]
 
-        # Explicitly mark as regular reconciliation (not Opening Entry)
-        sr.is_opening = "No"
+        # # Explicitly mark as regular reconciliation (not Opening Entry)
+        # sr.is_opening = "No"
 
         # Fetch valid difference account (Asset or Liability)
         account = frappe.db.get_value("Account", {
