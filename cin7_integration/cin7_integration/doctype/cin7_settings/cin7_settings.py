@@ -708,7 +708,7 @@ def sync_stock():
                 "use_serial_batch_fields": 1
             })
 
-        sr.expense_account = "Stock Adjustment - L"
+        sr.expense_account = "Stock Adjustment - IF-M"
         sr.insert(ignore_permissions=True)
         sr.submit()
 
