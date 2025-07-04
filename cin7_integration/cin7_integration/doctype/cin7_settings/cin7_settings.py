@@ -698,7 +698,7 @@ def sync_stock():
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
         # sr.purpose = "Stock Reconciliation"
-        sr.purpose = "Opening Entry"
+        sr.purpose = "Opening Stock"
         sr.set("items", [])
 
         for item in reconciliation_items:
