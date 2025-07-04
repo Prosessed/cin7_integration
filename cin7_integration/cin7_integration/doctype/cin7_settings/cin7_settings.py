@@ -668,7 +668,7 @@ def sync_stock():
                 if not sku:
                     continue
 
-                cin7_qty = float(stock.get("StockOnHand") or 0)
+                cin7_qty = float(stock.get("Available") or 0)
                 item_code = frappe.db.get_value("Item", {"item_code": sku})
 
                 if not item_code:
