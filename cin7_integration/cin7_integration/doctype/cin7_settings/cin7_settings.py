@@ -697,7 +697,8 @@ def sync_stock():
 
         sr = frappe.new_doc("Stock Reconciliation")
         sr.company = frappe.defaults.get_user_default("Company")
-        sr.purpose = "Stock Reconciliation"
+        # sr.purpose = "Stock Reconciliation"
+        sr.purpose = "Opening Stock"
         sr.set("items", [])
 
         for item in reconciliation_items:
@@ -708,7 +709,9 @@ def sync_stock():
                 "use_serial_batch_fields": 1
             })
 
-        sr.expense_account = "Stock Adjustment - IF-M"
+        # sr.expense_account = "Stock Adjustment - IF-M"
+        sr.expense_account = "Temporary Opening - IF-M"
+
         sr.insert(ignore_permissions=True)
         sr.submit()
 
