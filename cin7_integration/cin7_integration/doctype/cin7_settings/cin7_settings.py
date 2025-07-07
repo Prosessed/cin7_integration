@@ -693,7 +693,7 @@ def sync_sales_orders():
     total_count = 0
 
     for status in statuses:
-        page = 15
+        page = 1
         count = 0
 
         while True:

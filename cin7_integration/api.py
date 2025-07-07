@@ -12,8 +12,6 @@ def auto_sync_on_submit(doc, method):
         if not doc.custom_cin7_sale_id and not doc.custom_cin7_order_id:
             frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc=doc)
 
-        else:
-            frappe.msgprint("Sales Order is already synced with CIN7, skipping sync.")
     except Exception as e:
         frappe.log_error(f"CIN7 Auto Sync Failed on Submit for {doc.name}: {str(e)}")
         frappe.throw(f"Failed to sync Sales Order with CIN7: {str(e)}")
