@@ -10,8 +10,9 @@ from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integra
 def auto_sync_on_submit(doc, method):
     try:
         if not doc.custom_cin7_sale_id and not doc.custom_cin7_order_id:
-            frappe.msgprint("Sales Order is not synced with CIN7. Syncing now...")
-            frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc_name=doc.name)
+            if doc.workflow_state == "Reviewing":
+                doc.submit()
+                frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc=doc)
 
     except Exception as e:
         frappe.log_error(f"CIN7 Auto Sync Failed on Submit for {doc.name}: {str(e)}")
@@ -20,7 +21,6 @@ def auto_sync_on_submit(doc, method):
 
 def sync_sales_order_to_cin7(doc):
     doc = frappe.get_doc("Sales Order", doc.name)
-    doc.submit()
     if not doc.custom_cin7_order_id:
         create_sales_order_on_cin7(doc, method=None)
 
