@@ -185,6 +185,7 @@ def create_erpnext_sales_order_from_cin7(sale_data: dict) -> str | None:
             })
 
         doc.insert(ignore_permissions=True)
+        doc.submit()
         frappe.db.commit()
         return doc.name
 

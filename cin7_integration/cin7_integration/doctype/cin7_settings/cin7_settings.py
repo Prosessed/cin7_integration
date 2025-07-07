@@ -653,7 +653,7 @@ def sync_sales_orders():
     count = 0
 
     while True:
-        sales = get_cin7_sale_ids(saleStatus="CREDITED", start_page=page)
+        sales = get_cin7_sale_ids(saleStatus="INVOICED", start_page=page)
 
         if not sales:
             frappe.logger().info(f"[SYNC] No more sales found at page {page}. Ending sync.")
