@@ -540,96 +540,6 @@ def sync_item_groups():
     return f"{status}: {len(groups)} groups processed"
 
 
-# @frappe.whitelist()
-# def sync_stock():
-#     """Sync CIN7 stock with ERP via Stock Reconciliation. Always creates reconciliation, prevents duplicates, handles pagination."""
-
-#     # Step 1: Fetch CIN7 Settings
-#     cin7 = frappe.get_single("CIN7 Settings")
-#     if not cin7.enable:
-#         frappe.throw(_("CIN7 Integration is not enabled."))
-
-#     # Step 2: Setup Constants
-#     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-#     warehouse = "Melbourne Warehouse - IF-M - L"
-#     total_items = None
-#     page = 1
-#     fetched_count = 0
-#     reconciliation_map = {}  # Use map to prevent duplicates
-
-#     try:
-#         # Step 3: Paginated Fetch from CIN7
-#         while True:
-#             url = f"{base_url}?Page={page}"
-#             response = cin7._get(url)
-
-#             if total_items is None:
-#                 total_items = response.get("Total", 0)
-
-#             stocks = response.get("ProductAvailabilityList", [])
-#             if not isinstance(stocks, list):
-#                 frappe.log_error(f"[CIN7] Invalid response format at Page {page}", "[CIN7] sync_stock")
-#                 frappe.throw(_("Invalid CIN7 response format."))
-
-#             if not stocks:
-#                 break  # No more data
-
-#             # Step 4: Loop through Stock Items
-#             for stock in stocks:
-#                 sku = stock.get("SKU")
-#                 if not sku:
-#                     continue
-
-#                 cin7_qty = float(stock.get("StockOnHand") or 0)
-#                 item_code = frappe.db.get_value("Item", {"item_code": sku})
-
-#                 if not item_code:
-#                     continue
-
-#                 key = f"{item_code}::{warehouse}"
-
-#                 # Only add if not already present (prevents duplicates)
-#                 if key not in reconciliation_map:
-#                     reconciliation_map[key] = {
-#                         "item_code": item_code,
-#                         "warehouse": warehouse,
-#                         "qty": cin7_qty
-#                     }
-
-#             fetched_count += len(stocks)
-#             if fetched_count >= total_items:
-#                 break
-
-#             page += 1
-
-#         # Step 5: Prepare Stock Reconciliation
-#         reconciliation_items = list(reconciliation_map.values())
-#         if not reconciliation_items:
-#             return "No matching items found. No Stock Reconciliation created."
-
-#         sr = frappe.new_doc("Stock Reconciliation")
-#         sr.company = frappe.defaults.get_user_default("Company")
-#         sr.purpose = "Opening Stock"
-#         sr.set("items", [])
-
-#         for item in reconciliation_items:
-#             sr.append("items", {
-#                 "item_code": item["item_code"],
-#                 "warehouse": item["warehouse"],
-#                 "qty": item["qty"],
-#                 "use_serial_batch_fields": 1
-#             })
-
-
-#         sr.expense_account = "Temporary Opening - L"
-#         sr.insert(ignore_permissions=True)
-#         sr.submit()
-
-#         return f"Stock Reconciliation {sr.name} created. {len(reconciliation_items)} items updated."
-
-#     except Exception:
-#         frappe.log_error(frappe.get_traceback(), "[CIN7] sync_stock: Unhandled Exception")
-#         frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 
 @frappe.whitelist()
@@ -722,6 +632,8 @@ def sync_stock():
         frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 
+
+
 @frappe.whitelist()
 def sync_cin7_sales_orders_background():
     frappe.enqueue(
@@ -730,48 +642,93 @@ def sync_cin7_sales_orders_background():
         timeout=1800,
         job_name="Sync CIN7 Sales Orders",
         is_async=True,
-        now=False  # ✅ force async, don't execute immediately
+        now=False
     )
     return "Sync started in background."
 
 
+# @frappe.whitelist()
+# def sync_sales_orders():
+#     page = 15
+#     count = 0
+
+#     while True:
+#         sales = get_cin7_sale_ids(saleStatus="INVOICED", start_page=page)
+
+#         if not sales:
+#             frappe.logger().info(f"[SYNC] No more sales found at page {page}. Ending sync.")
+#             break
+
+#         for i, sale in enumerate(sales, start=1):
+#             sale_id = sale.get("SaleID")
+#             customer_name = sale.get("Customer")
+
+#             frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}")
+#             sale_data = get_cin7_sale_order_details(sale_id)
+
+#             if not sale_data:
+#                 continue
+
+#             sale_data["Customer"] = customer_name
+#             sale_data["OrderDate"] = sale.get("OrderDate")
+#             so_name = create_erpnext_sales_order_from_cin7(sale_data)
+
+#             if so_name:
+#                 log_cin7(
+#                     title=f"CIN7 Sales Order {so_name} Synced",
+#                     method="GET",
+#                     status='Success',
+#                 )
+#                 frappe.logger().info(f"[SYNC] Created ERPNext Sales Order: {so_name}")
+#                 count += 1
+
+#         page += 1
+
+#     frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
+
+
 @frappe.whitelist()
 def sync_sales_orders():
-    page = 15
-    count = 0
+    statuses = ["INVOICED", "CREDITED"]
+    total_count = 0
 
-    while True:
-        sales = get_cin7_sale_ids(saleStatus="INVOICED", start_page=page)
+    for status in statuses:
+        page = 15
+        count = 0
 
-        if not sales:
-            frappe.logger().info(f"[SYNC] No more sales found at page {page}. Ending sync.")
-            break
+        while True:
+            sales = get_cin7_sale_ids(saleStatus=status, start_page=page)
 
-        for i, sale in enumerate(sales, start=1):
-            sale_id = sale.get("SaleID")
-            customer_name = sale.get("Customer")
+            if not sales:
+                frappe.logger().info(f"[SYNC] No more '{status}' sales found at page {page}. Ending sync for this status.")
+                break
 
-            frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}")
-            sale_data = get_cin7_sale_order_details(sale_id)
+            for i, sale in enumerate(sales, start=1):
+                sale_id = sale.get("SaleID")
+                customer_name = sale.get("Customer")
 
-            if not sale_data:
-                continue
+                frappe.logger().info(f"[SYNC] Processing SaleID: {sale_id}, Customer: {customer_name}, Status: {status}")
+                sale_data = get_cin7_sale_order_details(sale_id)
 
-            sale_data["Customer"] = customer_name
-            sale_data["OrderDate"] = sale.get("OrderDate")
-            so_name = create_erpnext_sales_order_from_cin7(sale_data)
+                if not sale_data:
+                    continue
 
-            if so_name:
-                log_cin7(
-                    title=f"CIN7 Sales Order {so_name} Synced",
-                    method="GET",
-                    status='Success',
-                )
-                frappe.logger().info(f"[SYNC] Created ERPNext Sales Order: {so_name}")
-                count += 1
+                sale_data["Customer"] = customer_name
+                sale_data["OrderDate"] = sale.get("OrderDate")
+                so_name = create_erpnext_sales_order_from_cin7(sale_data)
 
-        page += 1
+                if so_name:
+                    log_cin7(
+                        title=f"CIN7 Sales Order {so_name} Synced ({status})",
+                        method="GET",
+                        status='Success',
+                    )
+                    frappe.logger().info(f"[SYNC] Created ERPNext Sales Order: {so_name}")
+                    count += 1
 
-    frappe.logger().info(f"[SYNC] Completed. Total orders synced: {count}")
+            page += 1
 
+        frappe.logger().info(f"[SYNC] Completed for status '{status}'. Total orders synced: {count}")
+        total_count += count
 
+    frappe.logger().info(f"[SYNC] Completed overall. Total orders synced: {total_count}")

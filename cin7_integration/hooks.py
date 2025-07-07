@@ -244,7 +244,7 @@ app_license = "mit"
 
 doc_events = {
 		"Sales Order":{
-		"on_submit":"cin7_integration.api.create_sales_order_on_cin7",
+		"after_insert":"cin7_integration.api.auto_sync_on_submit",
 	},
 
 }
