@@ -7,6 +7,14 @@ from datetime import datetime
 from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integration_log import log_cin7
 
 
+def auto_submit_sales_order(doc, method):
+    try:
+        if doc.docstatus == 0:
+            doc.submit()
+    except Exception as e:
+        frappe.log_error(f"Auto Submit Failed for {doc.name}: {str(e)}")
+        frappe.throw(f"Failed to auto-submit Sales Order: {str(e)}")
+
 def auto_sync_on_submit(doc, method):
     try:
         if not doc.custom_cin7_order_id and not doc.custom_cin7_sale_id:
