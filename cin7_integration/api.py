@@ -9,10 +9,8 @@ from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integra
 
 def auto_sync_on_submit(doc, method):
     try:
-        if (doc.custom_cin7_order_id is None or '') and (doc.custom_cin7_sale_id is None or ''):
-            if doc.workflow_state == "Reviewing":
-                doc.submit()
-                frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc=doc)
+        if not doc.custom_cin7_order_id and not doc.custom_cin7_sale_id:
+            frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc=doc)
 
     except Exception as e:
         frappe.log_error(f"CIN7 Auto Sync Failed on Submit for {doc.name}: {str(e)}")
@@ -21,8 +19,7 @@ def auto_sync_on_submit(doc, method):
 
 def sync_sales_order_to_cin7(doc):
     doc = frappe.get_doc("Sales Order", doc.name)
-    if not doc.custom_cin7_order_id:
-        create_sales_order_on_cin7(doc, method=None)
+    create_sales_order_on_cin7(doc, method=None)
 
 
 def create_sales_order_on_cin7(doc, method):
@@ -127,7 +124,10 @@ def place_order_lines_on_cin7(doc, sale_id=None):
     try:
         response = requests.post(api_url, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
+
         doc.db_set("custom_is_synced", 1)
+        doc.submit()
+        frappe.db.commit()
         frappe.msgprint("Hurrah!, Sales Order pushed to CIN7.")
         log_cin7('CIN7 PLACE ORDER', 'POST', api_url, 'CIN7 ORDER SUCCESS')
 
