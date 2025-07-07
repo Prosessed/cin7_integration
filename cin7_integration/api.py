@@ -9,7 +9,7 @@ from cin7_integration.cin7_integration.doctype.cin7_integration_log.cin7_integra
 
 def auto_sync_on_submit(doc, method):
     try:
-        if not doc.custom_cin7_sale_id and not doc.custom_cin7_order_id:
+        if (doc.custom_cin7_order_id is None or '') and (doc.custom_cin7_sale_id is None or ''):
             if doc.workflow_state == "Reviewing":
                 doc.submit()
                 frappe.enqueue(sync_sales_order_to_cin7, queue='default', doc=doc)
