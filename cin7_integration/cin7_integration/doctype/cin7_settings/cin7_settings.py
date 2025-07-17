@@ -542,22 +542,214 @@ def sync_item_groups():
 
 
 
+# @frappe.whitelist()
+# def sync_stock():
+#     """Sync CIN7 stock with ERP via Stock Reconciliation. Always creates reconciliation, prevents duplicates, handles pagination."""
+
+#     cin7 = frappe.get_single("CIN7 Settings")
+#     if not cin7.enable:
+#         frappe.throw(_("CIN7 Integration is not enabled."))
+
+#     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+#     warehouse = "Melbourne Warehouse - IF-M"
+#     total_items = None
+#     page = 1
+#     fetched_count = 0
+#     reconciliation_map = {}  # Key: item_code::warehouse, Value: total qty
+
+#     try:
+#         while True:
+#             url = f"{base_url}?Page={page}"
+#             response = cin7._get(url)
+
+#             if total_items is None:
+#                 total_items = response.get("Total", 0)
+
+#             stocks = response.get("ProductAvailabilityList", [])
+#             if not isinstance(stocks, list):
+#                 frappe.log_error(f"[CIN7] Invalid response format at Page {page}", "[CIN7] sync_stock")
+#                 frappe.throw(_("Invalid CIN7 response format."))
+
+#             if not stocks:
+#                 break
+
+#             for stock in stocks:
+#                 sku = stock.get("SKU")
+#                 if not sku:
+#                     continue
+
+#                 cin7_qty = float(stock.get("Available") or 0)
+#                 item_code = frappe.db.get_value("Item", {"item_code": sku})
+
+#                 if not item_code:
+#                     continue
+
+#                 key = f"{item_code}::{warehouse}"
+
+#                 if key not in reconciliation_map:
+#                     reconciliation_map[key] = {
+#                         "item_code": item_code,
+#                         "warehouse": warehouse,
+#                         "qty": 0
+#                     }
+
+#                 reconciliation_map[key]["qty"] += cin7_qty  # Sum StockOnHand for same item
+
+#             fetched_count += len(stocks)
+#             if fetched_count >= total_items:
+#                 break
+
+#             page += 1
+
+#         reconciliation_items = list(reconciliation_map.values())
+#         if not reconciliation_items:
+#             return "No matching items found. No Stock Reconciliation created."
+
+#         sr = frappe.new_doc("Stock Reconciliation")
+#         sr.company = frappe.defaults.get_user_default("Company")
+#         # sr.purpose = "Stock Reconciliation"
+#         sr.purpose = "Opening Stock"
+#         sr.set("items", [])
+
+#         for item in reconciliation_items:
+#             sr.append("items", {
+#                 "item_code": item["item_code"],
+#                 "warehouse": item["warehouse"],
+#                 "qty": item["qty"],
+#                 "use_serial_batch_fields": 1
+#             })
+
+#         # sr.expense_account = "Stock Adjustment - IF-M"
+#         sr.expense_account = "Temporary Opening - IF-M"
+
+#         sr.insert(ignore_permissions=True)
+#         sr.submit()
+
+#         return f"Stock Reconciliation {sr.name} created. {len(reconciliation_items)} items updated."
+
+#     except Exception:
+#         frappe.log_error(frappe.get_traceback(), "[CIN7] sync_stock: Unhandled Exception")
+#         frappe.throw(_("Stock reconciliation failed. Check error log."))
+
+
+# @frappe.whitelist()
+# def sync_stock():
+#     """Sync CIN7 stock with ERP via Stock Reconciliation. Always creates reconciliation, prevents duplicates, handles pagination."""
+
+#     cin7 = frappe.get_single("CIN7 Settings")
+#     if not cin7.enable:
+#         frappe.throw(_("CIN7 Integration is not enabled."))
+
+#     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+#     warehouse = "Melbourne Warehouse - IF-M - L"
+#     total_items = None
+#     page = 1
+#     fetched_count = 0
+#     reconciliation_map = {}  # Key: item_code::warehouse, Value: total qty
+
+#     try:
+#         while True:
+#             url = f"{base_url}?Page={page}"
+#             response = cin7._get(url)
+
+#             if total_items is None:
+#                 total_items = response.get("Total", 0)
+
+#             stocks = response.get("ProductAvailabilityList", [])
+#             if not isinstance(stocks, list):
+#                 frappe.log_error(f"[CIN7] Invalid response format at Page {page}", "[CIN7] sync_stock")
+#                 frappe.throw(_("Invalid CIN7 response format."))
+
+#             if not stocks:
+#                 break
+
+#             for stock in stocks:
+#                 sku = stock.get("SKU")
+#                 if not sku:
+#                     continue
+
+#                 cin7_qty = float(stock.get("Available") or 0)
+#                 item_code = frappe.db.get_value("Item", {"item_code": sku})
+
+#                 if not item_code:
+#                     continue
+
+#                 key = f"{item_code}::{warehouse}"
+
+#                 if key not in reconciliation_map:
+#                     reconciliation_map[key] = {
+#                         "item_code": item_code,
+#                         "warehouse": warehouse,
+#                         "qty": 0
+#                     }
+
+#                 reconciliation_map[key]["qty"] += cin7_qty  # Sum StockOnHand for same item
+
+#             fetched_count += len(stocks)
+#             if fetched_count >= total_items:
+#                 break
+
+#             page += 1
+
+#         reconciliation_items = list(reconciliation_map.values())
+#         if not reconciliation_items:
+#             return "No matching items found. No Stock Reconciliation created."
+
+#         # Get company and abbreviation dynamically
+#         company = frappe.defaults.get_user_default("Company")
+#         company_abbr = frappe.db.get_value("Company", company, "abbr")
+
+#         # Check how many stock reconciliations exist for this company
+#         existing_sr_count = frappe.db.count("Stock Reconciliation", {"company": company})
+
+#         # Dynamically determine purpose
+#         purpose = "Opening Stock" if existing_sr_count == 0 else "Stock Reconciliation"
+
+#         # Create new Stock Reconciliation document
+#         sr = frappe.new_doc("Stock Reconciliation")
+#         sr.company = company
+#         sr.purpose = purpose
+#         sr.expense_account = f"Temporary Opening - {company_abbr}"
+#         sr.set("items", [])
+
+#         # Add items to the stock reconciliation
+#         for item in reconciliation_items:
+#             item_qty = max(item["qty"], 0)
+#             sr.append("items", {
+#                 "item_code": item["item_code"],
+#                 "warehouse": item["warehouse"],
+#                 "qty": item_qty,
+#                 "use_serial_batch_fields": 1
+#             })
+
+#         # Insert and submit the stock reconciliation
+#         sr.insert(ignore_permissions=True)
+#         sr.submit()
+
+#         return f"Stock Reconciliation {sr.name} created. {len(reconciliation_items)} items updated."
+
+#     except Exception as e:
+#         frappe.log_error(frappe.get_traceback(), "[CIN7] sync_stock: Unhandled Exception")
+#         frappe.throw(_("Stock reconciliation failed. Check error log."))
+
+
 @frappe.whitelist()
 def sync_stock():
-    """Sync CIN7 stock with ERP via Stock Reconciliation. Always creates reconciliation, prevents duplicates, handles pagination."""
+    """Sync CIN7 stock with ERP via Stock Reconciliation. Creates/updates reconciliation, handles pagination, and batch updates."""
 
+    # Fetch CIN7 settings
     cin7 = frappe.get_single("CIN7 Settings")
     if not cin7.enable:
         frappe.throw(_("CIN7 Integration is not enabled."))
 
     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
-    warehouse = "Melbourne Warehouse - IF-M"
-    total_items = None
     page = 1
-    fetched_count = 0
-    reconciliation_map = {}  # Key: item_code::warehouse, Value: total qty
+    total_items = None
+    reconciliation_map = {}
+    warehouse = "Melbourne Warehouse - IF-M - L"
 
     try:
+        # Pagination to fetch all items
         while True:
             url = f"{base_url}?Page={page}"
             response = cin7._get(url)
@@ -584,54 +776,205 @@ def sync_stock():
                 if not item_code:
                     continue
 
-                key = f"{item_code}::{warehouse}"
+                current_stock_qty = frappe.db.get_value("Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty")
 
+                if current_stock_qty == cin7_qty:
+                    continue
+
+                key = f"{item_code}"
                 if key not in reconciliation_map:
-                    reconciliation_map[key] = {
-                        "item_code": item_code,
-                        "warehouse": warehouse,
-                        "qty": 0
-                    }
+                   reconciliation_map[key] = {"item_code": item_code, "warehouse": warehouse, "qty": 0}
 
-                reconciliation_map[key]["qty"] += cin7_qty  # Sum StockOnHand for same item
-
-            fetched_count += len(stocks)
-            if fetched_count >= total_items:
-                break
+                reconciliation_map[key]["qty"] = cin7_qty
 
             page += 1
+            if len(stocks) >= total_items:
+                break
 
         reconciliation_items = list(reconciliation_map.values())
         if not reconciliation_items:
             return "No matching items found. No Stock Reconciliation created."
 
-        sr = frappe.new_doc("Stock Reconciliation")
-        sr.company = frappe.defaults.get_user_default("Company")
-        # sr.purpose = "Stock Reconciliation"
-        sr.purpose = "Opening Stock"
-        sr.set("items", [])
+        company = frappe.defaults.get_user_default("Company")
+        company_abbr = frappe.db.get_value("Company", company, "abbr")
+        existing_sr_count = frappe.db.count("Stock Reconciliation", {"company": company})
+        purpose = "Opening Stock" if existing_sr_count == 0 else "Stock Reconciliation"
+
+        sr = frappe.new_doc("Stock Reconciliation") if existing_sr_count == 0 else frappe.get_last_doc("Stock Reconciliation", filters={"company": company})
+        sr.company = company
+        sr.purpose = purpose
+        sr.expense_account = f"Temporary Opening - {company_abbr}"
 
         for item in reconciliation_items:
+            item_qty = max(item["qty"], 0)
+
+            if item_qty == 0:
+                continue
+
+            if "batch_no" not in item:
+                item["batch_no"] = None
+
+            batch_id = frappe.db.get_value("Batch", {"item": item["item_code"]}, "batch_id")
+
+            if batch_id:
+                new_qty = item_qty
+                frappe.log_error(f"Updated Batch {batch_id} with new qty {new_qty}")
+                item["batch_no"] = batch_id
+
+            if "use_serial_batch_fields" not in item:
+                    item["use_serial_batch_fields"] = None
+
+            opening_stock_exists = frappe.db.exists("Stock Reconciliation", {
+
+                "purpose": "Opening Stock"
+            })
+
+            if not opening_stock_exists:
+
+                 item["use_serial_batch_fields"] = 1
+            else:
+                item["use_serial_batch_fields"] = 0
+
+
+
+
             sr.append("items", {
                 "item_code": item["item_code"],
                 "warehouse": item["warehouse"],
-                "qty": item["qty"],
-                "use_serial_batch_fields": 1
+                "qty": item_qty,
+                "use_serial_batch_fields": item["use_serial_batch_fields"],
+                "batch_no" : item["batch_no"]
+
             })
 
-        # sr.expense_account = "Stock Adjustment - IF-M"
-        sr.expense_account = "Temporary Opening - IF-M"
+        try:
+            sr.insert(ignore_permissions=True)
+            sr.submit()
+        except frappe.exceptions.ValidationError as e:
+            frappe.log_error(f"Validation Error: {str(e)}", "[CIN7] sync_stock")
+            return f"Error: {str(e)}"
 
-        sr.insert(ignore_permissions=True)
-        sr.submit()
+        return f"Stock Reconciliation {sr.name} created/updated. {len(reconciliation_items)} items processed."
 
-        return f"Stock Reconciliation {sr.name} created. {len(reconciliation_items)} items updated."
-
-    except Exception:
+    except Exception as e:
         frappe.log_error(frappe.get_traceback(), "[CIN7] sync_stock: Unhandled Exception")
         frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 
+# @frappe.whitelist()
+# def sync_stock():
+#     """Sync CIN7 stock with ERP via Stock Reconciliation. Creates/updates reconciliation, handles pagination, and batch updates."""
+
+#     # Fetch CIN7 settings
+#     cin7 = frappe.get_single("CIN7 Settings")
+#     if not cin7.enable:
+#         frappe.throw(_("CIN7 Integration is not enabled."))
+
+#     base_url = "https://inventory.dearsystems.com/ExternalApi/v2/ref/productavailability"
+#     warehouse = "Melbourne Warehouse - IF-M-L"
+#     page = 1
+#     total_items = None
+#     reconciliation_map = {}
+
+#     try:
+#         # Pagination to fetch all items
+#         while True:
+#             url = f"{base_url}?Page={page}"
+#             response = cin7._get(url)
+
+#             if total_items is None:
+#                 total_items = response.get("Total", 0)
+
+#             stocks = response.get("ProductAvailabilityList", [])
+#             if not isinstance(stocks, list):
+#                 frappe.log_error(f"[CIN7] Invalid response format at Page {page}", "[CIN7] sync_stock")
+#                 frappe.throw(_("Invalid CIN7 response format."))
+
+#             # Break if no stock items are returned
+#             if not stocks:
+#                 break
+
+#             # Process each stock item
+#             for stock in stocks:
+#                 sku = stock.get("SKU")
+#                 if not sku:
+#                     continue
+
+#                 cin7_qty = float(stock.get("Available") or 0)
+#                 item_code = frappe.db.get_value("Item", {"item_code": sku})
+
+#                 if not item_code:
+#                     continue
+
+#                 # Store reconciliation data per item and warehouse
+#                 key = f"{item_code}::{warehouse}"
+#                 if key not in reconciliation_map:
+#                     reconciliation_map[key] = {"item_code": item_code, "warehouse": warehouse, "qty": 0}
+
+#                 reconciliation_map[key]["qty"] = cin7_qty
+
+#             page += 1
+#             if len(stocks) >= total_items:
+#                 break
+
+#         reconciliation_items = list(reconciliation_map.values())
+#         if not reconciliation_items:
+#             return "No matching items found. No Stock Reconciliation created."
+
+#         # Create or fetch Stock Reconciliation
+#         company = frappe.defaults.get_user_default("Company")
+#         company_abbr = frappe.db.get_value("Company", company, "abbr")
+#         existing_sr_count = frappe.db.count("Stock Reconciliation", {"company": company})
+#         purpose = "Opening Stock" if existing_sr_count == 0 else "Stock Reconciliation"
+
+#         sr = frappe.new_doc("Stock Reconciliation") if existing_sr_count == 0 else frappe.get_last_doc("Stock Reconciliation", filters={"company": company})
+#         sr.company = company
+#         sr.purpose = purpose
+#         sr.expense_account = f"Temporary Opening - {company_abbr}"
+
+#         # Add or update items in reconciliation
+#         for item in reconciliation_items:
+#             item_qty = max(item["qty"], 0)
+#             existing_item = next((existing for existing in sr.items if existing.item_code == item["item_code"] and existing.warehouse == item["warehouse"]), None)
+
+#             if existing_item:
+#                 # Update existing batch
+#                 for batch in existing_item.batch_no:
+#                     if batch.batch == item.get("batch"):
+#                         batch.actual_qty = item_qty
+#                         break
+#                 else:
+#                     # Create new batch if it doesn't exist
+#                     existing_item.append("batch_no", {
+#                         "batch": item.get("batch"),
+#                         "actual_qty": item_qty,
+#                     })
+#             else:
+#                 # Add new item to reconciliation
+#                 sr.append("items", {
+#                     "item_code": item["item_code"],
+#                     "warehouse": item["warehouse"],
+#                     "qty": item_qty,
+#                     "use_serial_batch_fields": 1,
+#                     "batch_no": [{
+#                         "batch": item.get("batch"),
+#                         "actual_qty": item_qty,
+#                     }]
+#                 })
+
+#         # Insert and submit the reconciliation
+#         try:
+#             sr.insert(ignore_permissions=True)
+#             sr.submit()
+#         except frappe.exceptions.ValidationError as e:
+#             frappe.log_error(f"Validation Error: {str(e)}", "[CIN7] sync_stock")
+#             return f"Error: {str(e)}"
+
+#         return f"Stock Reconciliation {sr.name} created/updated. {len(reconciliation_items)} items processed."
+
+#     except Exception as e:
+#         frappe.log_error(frappe.get_traceback(), "[CIN7] sync_stock: Unhandled Exception")
+#         frappe.throw(_("Stock reconciliation failed. Check error log."))
 
 
 @frappe.whitelist()

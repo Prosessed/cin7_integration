@@ -119,12 +119,14 @@ def place_order_lines_on_cin7(doc, sale_id=None):
         tax_rule = item.item_tax_template.split(" - ")[0].strip() if item.item_tax_template else "Tax on Sales"
         tax_percentage = 10 if tax_rule == "GST on Income" else 0
         tax_amount = round((item.amount or 0) * tax_percentage / 100, 2)
+        total = item.rate * item.qty
 
         payload["Lines"].append({
             "SKU": item.item_code,
+            "Discount": round(item.discount_percentage, 2),
             "Quantity": item.qty,
-            "Price": item.rate,
-            "Total": item.amount,
+            "Price": item.price_list_rate,
+            "Total": total,
             "TaxRule": tax_rule,
             "Tax": tax_amount
         })
